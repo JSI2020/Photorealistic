@@ -11,15 +11,22 @@ import { HOUSE_MODELS } from "@/lib/model-persona";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const settings = await getAppSettings();
-  return NextResponse.json({
-    ...settings,
-    houseModels: HOUSE_MODELS.map((m) => ({
-      id: m.id,
-      name: m.name,
-      cue: m.cue,
-    })),
-  });
+  try {
+    const settings = await getAppSettings();
+    return NextResponse.json({
+      ...settings,
+      houseModels: HOUSE_MODELS.map((m) => ({
+        id: m.id,
+        name: m.name,
+        cue: m.cue,
+      })),
+    });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to load settings.";
+    console.error("[api/settings GET]", err);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
 export async function PUT(request: Request) {

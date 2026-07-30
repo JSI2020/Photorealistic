@@ -27,10 +27,20 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
   useEffect(() => {
     if (!open) return;
+    setMessage(null);
     void fetch("/api/settings")
-      .then((r) => r.json())
-      .then((data: AppSettings) => setSettings(data))
-      .catch(() => setMessage("Failed to load settings."));
+      .then(async (r) => {
+        const data = (await r.json()) as AppSettings & { error?: string };
+        if (!r.ok) {
+          throw new Error(data.error || `Settings failed (${r.status})`);
+        }
+        setSettings(data);
+      })
+      .catch((err: unknown) => {
+        setMessage(
+          err instanceof Error ? err.message : "Failed to load settings.",
+        );
+      });
   }, [open]);
 
   if (!open) return null;

@@ -27,25 +27,21 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV DATABASE_URL=file:/data/photoreal.db
 
-RUN mkdir -p /data \
-    && addgroup --system --gid 1001 nodejs \
-    && adduser --system --uid 1001 nextjs \
-    && chown -R nextjs:nodejs /data
+# Run as root on Render free tier so /data disk mounts are writable.
+RUN mkdir -p /data /tmp
 
 COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 
-# Install native sqlite binding in the runtime image (don't COPY fragile dep paths)
+# Native module for SQLite — install into runtime image
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 COPY --from=builder /app/.npmrc ./.npmrc
-RUN npm install --omit=dev better-sqlite3 \
-    && chown -R nextjs:nodejs /app/node_modules
+RUN npm install --omit=dev better-sqlite3
 
-COPY --chown=nextjs:nodejs scripts/render-start.sh ./scripts/render-start.sh
+COPY scripts/render-start.sh ./scripts/render-start.sh
 RUN chmod +x ./scripts/render-start.sh
 
-USER nextjs
 EXPOSE 3000
 CMD ["./scripts/render-start.sh"]

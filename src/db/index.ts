@@ -9,12 +9,35 @@ type AppDb = BetterSQLite3Database<typeof schema>;
 
 let _db: AppDb | null = null;
 
+function canWriteDir(dir: string): boolean {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const probe = path.join(dir, ".write-test");
+    fs.writeFileSync(probe, "ok");
+    fs.unlinkSync(probe);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function resolveDbPath(): string {
   const raw = process.env.DATABASE_URL ?? "file:./data/photoreal.db";
   const filePath = raw.startsWith("file:") ? raw.slice("file:".length) : raw;
-  return path.isAbsolute(filePath)
+  const preferred = path.isAbsolute(filePath)
     ? filePath
     : path.join(process.cwd(), filePath);
+
+  if (canWriteDir(path.dirname(preferred))) {
+    return preferred;
+  }
+
+  // Free Render disks / non-root users often can't write /data — fall back.
+  const fallback = "/tmp/photoreal.db";
+  console.warn(
+    `[db] Cannot write ${preferred}; falling back to ${fallback}`,
+  );
+  return fallback;
 }
 
 function createDb(): AppDb {
@@ -80,13 +103,11 @@ function createDb(): AppDb {
   return drizzle(sqlite, { schema });
 }
 
-/** Lazily open SQLite only when an API route actually needs it. */
 export function getDb(): AppDb {
   if (!_db) _db = createDb();
   return _db;
 }
 
-/** Back-compat export used across the codebase. */
 export const db = new Proxy({} as AppDb, {
   get(_t, prop, receiver) {
     return Reflect.get(getDb() as object, prop, receiver);
