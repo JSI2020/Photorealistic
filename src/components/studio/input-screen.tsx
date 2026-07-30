@@ -12,6 +12,7 @@ import {
   RANDOM_HOUSE_MODEL_ID,
   type HouseModelSelection,
 } from "@/lib/model-persona";
+import { readJsonSafe } from "@/lib/http";
 
 export type UploadedAsset = {
   localPreview: string;
@@ -44,13 +45,15 @@ async function uploadFiles(
   for (const file of files) form.append("files", file);
 
   const res = await fetch("/api/upload", { method: "POST", body: form });
-  const data = (await res.json()) as {
+  const parsed = await readJsonSafe<{
     files?: Array<{ originalName: string; url: string; lineArtUrl?: string }>;
     error?: string;
-  };
-  if (!res.ok) throw new Error(data.error || "Upload failed.");
+  }>(res);
+  if (!parsed.ok || !parsed.data?.files?.length) {
+    throw new Error(parsed.error || "Upload failed.");
+  }
 
-  return (data.files ?? []).map((f, i) => ({
+  return parsed.data.files.map((f, i) => ({
     localPreview: URL.createObjectURL(files[i]!),
     url: f.url,
     lineArtUrl: f.lineArtUrl,

@@ -38,7 +38,7 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 COPY --from=builder /app/.npmrc ./.npmrc
-RUN npm install --omit=dev better-sqlite3
+RUN npm install --omit=dev better-sqlite3 sharp
 
 COPY scripts/render-start.sh ./scripts/render-start.sh
 RUN chmod +x ./scripts/render-start.sh

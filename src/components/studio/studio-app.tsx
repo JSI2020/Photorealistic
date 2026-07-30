@@ -9,6 +9,7 @@ import { ResultScreen, type StudioVersion } from "@/components/studio/result-scr
 import { SettingsPanel } from "@/components/studio/settings-panel";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { FAL_MODEL_OPTIONS } from "@/lib/fal-config";
+import { readJsonSafe } from "@/lib/http";
 import {
   RANDOM_HOUSE_MODEL_ID,
   type HouseModelSelection,
@@ -100,13 +101,21 @@ export function StudioApp() {
       setSketchPreviews(payload.sketchPreviews);
       setSavedDesignId(null);
       try {
-        const settingsRes = await fetch("/api/settings");
-        const settings = (await settingsRes.json()) as {
-          fal: { generateModel: keyof typeof FAL_MODEL_OPTIONS };
-        };
-        setModelName(
-          FAL_MODEL_OPTIONS[settings.fal.generateModel]?.label ?? "fal model",
-        );
+        try {
+          const settingsParsed = await readJsonSafe<{
+            fal: { generateModel: keyof typeof FAL_MODEL_OPTIONS };
+          }>(await fetch("/api/settings"));
+          if (settingsParsed.ok && settingsParsed.data?.fal?.generateModel) {
+            setModelName(
+              FAL_MODEL_OPTIONS[settingsParsed.data.fal.generateModel]?.label ??
+                "fal model",
+            );
+          } else {
+            setModelName("fal model");
+          }
+        } catch {
+          setModelName("fal model");
+        }
 
         const res = await fetch("/api/generate", {
           method: "POST",
@@ -121,14 +130,17 @@ export function StudioApp() {
             houseModelId: payload.houseModelId,
           }),
         });
-        const data = (await res.json()) as {
+        const parsed = await readJsonSafe<{
           version: ApiVersion;
           totalCost: number;
           usdPkrRate?: number;
           houseModel?: { id: string; name: string };
           error?: string;
-        };
-        if (!res.ok) throw new Error(data.error || "Generation failed.");
+        }>(res);
+        if (!parsed.ok || !parsed.data?.version) {
+          throw new Error(parsed.error || "Generation failed.");
+        }
+        const data = parsed.data;
 
         setDraft({
           description: payload.description,

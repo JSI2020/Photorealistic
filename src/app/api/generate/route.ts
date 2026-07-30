@@ -115,6 +115,7 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Generation failed.";
+    console.error("[api/generate]", err);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -6,7 +6,7 @@ export function getFalKey(): string {
   const key = process.env.FAL_KEY;
   if (!key) {
     throw new Error(
-      "FAL_KEY is missing. Add it to .env.local (see .env.example).",
+      "FAL_KEY is missing. Add it in Render → Environment (and locally in .env.local).",
     );
   }
   return key;

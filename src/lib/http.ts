@@ -1,0 +1,41 @@
+/**
+ * Safely read JSON from a fetch Response.
+ * Render free-tier crashes often return empty bodies → "Unexpected end of JSON input".
+ */
+export async function readJsonSafe<T = unknown>(
+  res: Response,
+): Promise<{ ok: boolean; status: number; data: T | null; error: string | null }> {
+  const text = await res.text();
+  if (!text.trim()) {
+    return {
+      ok: false,
+      status: res.status,
+      data: null,
+      error: res.ok
+        ? "Server returned an empty response. The app may have run out of memory — retry in a moment."
+        : `Server error (${res.status}) with empty body. Check Render logs / FAL_KEY / DEEPSEEK_API_KEY.`,
+    };
+  }
+
+  try {
+    const data = JSON.parse(text) as T & { error?: string };
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        data,
+        error:
+          (typeof data === "object" && data && "error" in data && data.error) ||
+          `Request failed (${res.status})`,
+      };
+    }
+    return { ok: true, status: res.status, data, error: null };
+  } catch {
+    return {
+      ok: false,
+      status: res.status,
+      data: null,
+      error: `Invalid server response (${res.status}): ${text.slice(0, 160)}`,
+    };
+  }
+}

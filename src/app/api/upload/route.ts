@@ -40,26 +40,43 @@ export async function POST(request: Request) {
         continue;
       }
 
-      const processed = await preprocessSketch(bytes);
-      const mainBlob = await bufferToPngBlob(processed.processed, "sketch.png");
-      const lineBlob = await bufferToPngBlob(processed.lineArt, "sketch-line.png");
-      const [url, lineArtUrl] = await Promise.all([
-        uploadToFal(mainBlob),
-        uploadToFal(lineBlob),
-      ]);
-
-      uploaded.push({
-        originalName: file.name,
-        url,
-        lineArtUrl,
-        width: processed.width,
-        height: processed.height,
-      });
+      try {
+        const processed = await preprocessSketch(bytes);
+        const mainBlob = await bufferToPngBlob(processed.processed, "sketch.png");
+        const lineBlob = await bufferToPngBlob(processed.lineArt, "sketch-line.png");
+        const [url, lineArtUrl] = await Promise.all([
+          uploadToFal(mainBlob),
+          uploadToFal(lineBlob),
+        ]);
+        uploaded.push({
+          originalName: file.name,
+          url,
+          lineArtUrl,
+          width: processed.width,
+          height: processed.height,
+        });
+      } catch (preprocessErr) {
+        // Sharp missing/broken on some hosts — still upload the original file.
+        console.warn("[upload] preprocess failed, uploading original:", preprocessErr);
+        const blob = new File(
+          [new Uint8Array(bytes)],
+          file.name || "sketch.png",
+          { type: file.type || "image/png" },
+        );
+        const url = await uploadToFal(blob);
+        uploaded.push({
+          originalName: file.name,
+          url,
+          width: 0,
+          height: 0,
+        });
+      }
     }
 
     return NextResponse.json({ files: uploaded });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed.";
+    console.error("[api/upload]", err);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
