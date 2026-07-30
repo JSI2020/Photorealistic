@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.gitignore
+*.md
+Sketch_To_Photoreal_Tool_Prompt.md
+data
+.env*
+!.env.example
+Dockerfile
+.dockerignore
+npm-debug.log*
