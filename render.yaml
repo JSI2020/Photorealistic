@@ -1,13 +1,15 @@
-# Render Blueprint — https://render.com/docs/blueprint-spec
-# Connect this GitHub repo in Render, then apply the blueprint (or create a
-# Web Service manually from the Dockerfile).
+# Render Blueprint — Node runtime (no Docker). More reliable on free/starter plans.
+# https://dashboard.render.com → New → Blueprint → this repo
 
 services:
   - type: web
     name: sketch-photoreal
-    runtime: docker
+    runtime: node
     plan: starter
     region: oregon
+    nodeVersion: "20"
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
     healthCheckPath: /unlock
     disk:
       name: photoreal-data
@@ -16,6 +18,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=4096
       - key: DATABASE_URL
         value: file:/data/photoreal.db
       - key: USD_PKR_RATE

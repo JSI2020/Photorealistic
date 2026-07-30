@@ -1,11 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Standalone only needed for Docker; Node-on-Render uses `next start`
+  output: process.env.DOCKER_BUILD === "1" ? "standalone" : undefined,
   serverExternalPackages: ["better-sqlite3", "sharp"],
-  // Avoid flaky Docker failures from lint while shipping the tool
   eslint: { ignoreDuringBuilds: true },
-  typescript: { ignoreBuildErrors: false },
 };
 
 export default nextConfig;

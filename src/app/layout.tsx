@@ -1,22 +1,14 @@
 import type { Metadata } from "next";
-import { Fraunces, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
-
-const display = Fraunces({
-  variable: "--font-display",
-  subsets: ["latin"],
-});
-
-const sans = Source_Sans_3({
-  variable: "--font-sans",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Sketch → Photoreal",
   description: "Turn fashion sketches into photorealistic catalogue images",
 };
 
+/**
+ * System/local fonts only — avoids Google Fonts network fetch during Docker builds.
+ */
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -24,11 +16,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${display.variable} ${sans.variable} font-sans antialiased`}
-      >
-        {children}
-      </body>
+      <body className="font-sans antialiased">{children}</body>
     </html>
   );
 }

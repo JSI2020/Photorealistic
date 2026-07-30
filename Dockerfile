@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+# Optional Docker path. Prefer Render Node runtime (see render.yaml) if Docker builds fail.
 
 FROM node:20-bookworm-slim AS base
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -7,18 +8,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 FROM base AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
-# Ensure native modules (better-sqlite3, sharp) compile in Linux
-RUN npm ci --include=dev
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci
 
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=production
-# More memory headroom on small Render builders
 ENV NODE_OPTIONS=--max-old-space-size=4096
+# Keep NODE_ENV unset during build so Next can use all tooling normally
 RUN npm run build
 
 FROM base AS runner
@@ -37,12 +36,10 @@ RUN mkdir -p /data \
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-# better-sqlite3 is native and must be present at runtime
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/bindings ./node_modules/bindings
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/file-uri-to-path ./node_modules/file-uri-to-path
 COPY --chown=nextjs:nodejs scripts/render-start.sh ./scripts/render-start.sh
-
 RUN chmod +x ./scripts/render-start.sh
 
 USER nextjs
