@@ -1,5 +1,4 @@
 # syntax=docker/dockerfile:1
-# Optional Docker path. Prefer Render Node runtime (see render.yaml) if Docker builds fail.
 
 FROM node:20-bookworm-slim AS base
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,7 +16,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_OPTIONS=--max-old-space-size=4096
-# Keep NODE_ENV unset during build so Next can use all tooling normally
+ENV DOCKER_BUILD=1
 RUN npm run build
 
 FROM base AS runner
@@ -36,9 +35,14 @@ RUN mkdir -p /data \
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/bindings ./node_modules/bindings
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/file-uri-to-path ./node_modules/file-uri-to-path
+
+# Install native sqlite binding in the runtime image (don't COPY fragile dep paths)
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/package-lock.json ./package-lock.json
+COPY --from=builder /app/.npmrc ./.npmrc
+RUN npm install --omit=dev better-sqlite3 \
+    && chown -R nextjs:nodejs /app/node_modules
+
 COPY --chown=nextjs:nodejs scripts/render-start.sh ./scripts/render-start.sh
 RUN chmod +x ./scripts/render-start.sh
 
