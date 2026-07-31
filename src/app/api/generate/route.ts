@@ -10,6 +10,7 @@ import {
   type HouseModelSelection,
 } from "@/lib/model-persona";
 import { buildPrompt } from "@/lib/prompt-builder";
+import { DEFAULT_APP_SETTINGS } from "@/lib/settings";
 import { getAppSettings } from "@/lib/settings-store";
 
 export const runtime = "nodejs";
@@ -38,7 +39,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const settings = await getAppSettings();
+    let settings = DEFAULT_APP_SETTINGS;
+    try {
+      settings = await getAppSettings();
+    } catch (err) {
+      console.warn("[api/generate] settings failed, using defaults:", err);
+    }
     const houseModel = resolveHouseModel(
       body.houseModelId ?? settings.preferredHouseModelId,
     );
@@ -72,7 +78,10 @@ export async function POST(request: Request) {
     );
 
     if (!result.ok) {
-      return NextResponse.json({ error: result.error, modelId: result.modelId }, { status: 502 });
+      return NextResponse.json(
+        { error: result.error, modelId: result.modelId },
+        { status: 502 },
+      );
     }
 
     const version = {

@@ -128,8 +128,11 @@ export async function polishUserPrompt(
   const url = `${getBaseUrl()}/chat/completions`;
 
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12_000);
     const res = await fetch(url, {
       method: "POST",
+      signal: controller.signal,
       headers: {
         Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
         "Content-Type": "application/json",
@@ -147,7 +150,7 @@ export async function polishUserPrompt(
         // V4: keep non-thinking for speed/cost (ex deepseek-chat behaviour)
         thinking: { type: "disabled" },
       }),
-    });
+    }).finally(() => clearTimeout(timer));
 
     if (!res.ok) {
       const errText = await res.text();

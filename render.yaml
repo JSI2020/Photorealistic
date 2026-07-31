@@ -19,7 +19,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: NODE_OPTIONS
-        value: --max-old-space-size=4096
+        value: --max-old-space-size=384
       - key: DATABASE_URL
         value: file:/data/photoreal.db
       - key: USD_PKR_RATE

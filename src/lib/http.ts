@@ -13,7 +13,7 @@ export async function readJsonSafe<T = unknown>(
       data: null,
       error: res.ok
         ? "Server returned an empty response. The app may have run out of memory — retry in a moment."
-        : `Server error (${res.status}) with empty body. Check Render logs / FAL_KEY / DEEPSEEK_API_KEY.`,
+        : `Server error (${res.status}) with empty body — the Render process likely crashed or was killed mid-request (not a missing API key). Check Render → Events for exit 139/137, wait for recover, unlock again, then retry.`,
     };
   }
 

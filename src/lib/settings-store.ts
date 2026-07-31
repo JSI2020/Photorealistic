@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import fs from "node:fs";
+import path from "node:path";
 
-import { db } from "@/db";
-import { appSettings } from "@/db/schema";
+import { resolveDataDir } from "@/lib/data-path";
 import { DEFAULT_MODEL_PERSONA } from "@/lib/model-persona";
 import {
   DEFAULT_APP_SETTINGS,
@@ -10,70 +10,68 @@ import {
   type AppSettings,
 } from "@/lib/settings";
 
-function rowToSettings(
-  row: typeof appSettings.$inferSelect | undefined,
-): AppSettings {
-  if (!row) {
+function settingsPath(): string {
+  return path.join(resolveDataDir(), "settings.json");
+}
+
+function normalize(raw: Partial<AppSettings> | null | undefined): AppSettings {
+  if (!raw) {
     return {
       ...DEFAULT_APP_SETTINGS,
       persona: { ...DEFAULT_MODEL_PERSONA },
+      fal: { ...DEFAULT_APP_SETTINGS.fal },
     };
   }
 
   return {
     persona: {
-      description: row.personaDescription ?? DEFAULT_MODEL_PERSONA.description,
-      seed: row.seed ?? DEFAULT_MODEL_PERSONA.seed,
-      lockSeed: row.lockSeed ?? true,
+      description:
+        raw.persona?.description?.trim() || DEFAULT_MODEL_PERSONA.description,
+      seed:
+        typeof raw.persona?.seed === "number"
+          ? raw.persona.seed
+          : DEFAULT_MODEL_PERSONA.seed,
+      lockSeed:
+        typeof raw.persona?.lockSeed === "boolean"
+          ? raw.persona.lockSeed
+          : DEFAULT_MODEL_PERSONA.lockSeed,
     },
     preferredHouseModelId: normalizeHouseModelSelection(
-      row.preferredHouseModelId,
+      raw.preferredHouseModelId,
     ),
     fal: {
-      generateModel: isFalModelKey(row.generateModel)
-        ? row.generateModel
-        : DEFAULT_APP_SETTINGS.fal.generateModel,
-      refineModel: isFalModelKey(row.refineModel)
-        ? row.refineModel
-        : DEFAULT_APP_SETTINGS.fal.refineModel,
+      generateModel:
+        raw.fal?.generateModel && isFalModelKey(raw.fal.generateModel)
+          ? raw.fal.generateModel
+          : DEFAULT_APP_SETTINGS.fal.generateModel,
+      refineModel:
+        raw.fal?.refineModel && isFalModelKey(raw.fal.refineModel)
+          ? raw.fal.refineModel
+          : DEFAULT_APP_SETTINGS.fal.refineModel,
     },
-    monthlySpendReminderUsd: row.monthlySpendReminderUsd ?? null,
+    monthlySpendReminderUsd:
+      raw.monthlySpendReminderUsd === undefined
+        ? null
+        : raw.monthlySpendReminderUsd,
   };
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
-  const row = db
-    .select()
-    .from(appSettings)
-    .where(eq(appSettings.id, "default"))
-    .get();
-  return rowToSettings(row);
+  try {
+    const file = settingsPath();
+    if (!fs.existsSync(file)) return normalize(null);
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<AppSettings>;
+    return normalize(raw);
+  } catch (err) {
+    console.warn("[settings] read failed, using defaults:", err);
+    return normalize(null);
+  }
 }
 
 export async function saveAppSettings(next: AppSettings): Promise<AppSettings> {
-  const existing = db
-    .select()
-    .from(appSettings)
-    .where(eq(appSettings.id, "default"))
-    .get();
-
-  const values = {
-    id: "default" as const,
-    personaDescription: next.persona.description,
-    seed: next.persona.seed,
-    lockSeed: next.persona.lockSeed,
-    generateModel: next.fal.generateModel,
-    refineModel: next.fal.refineModel,
-    preferredHouseModelId: next.preferredHouseModelId,
-    monthlySpendReminderUsd: next.monthlySpendReminderUsd,
-    updatedAt: new Date(),
-  };
-
-  if (existing) {
-    db.update(appSettings).set(values).where(eq(appSettings.id, "default")).run();
-  } else {
-    db.insert(appSettings).values(values).run();
-  }
-
-  return next;
+  const normalized = normalize(next);
+  const file = settingsPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(normalized, null, 2), "utf8");
+  return normalized;
 }
