@@ -15,7 +15,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_OPTIONS=--max-old-space-size=4096
+# Free Render instances are ~512MB; huge heaps make OOM more likely during build.
+ENV NODE_OPTIONS=--max-old-space-size=1536
 ENV DOCKER_BUILD=1
 RUN npm run build
 
@@ -26,6 +27,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV DATABASE_URL=file:/data/photoreal.db
+# Sharp native binary segfaults (exit 139) on this free Docker setup — skip it.
+ENV ENABLE_SHARP=0
+ENV NODE_OPTIONS=--max-old-space-size=384
 
 # Run as root on Render free tier so /data disk mounts are writable.
 RUN mkdir -p /data /tmp
@@ -34,11 +38,11 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
-# Native module for SQLite — install into runtime image
+# Native SQLite only — do NOT install sharp here (causes SIGSEGV / exit 139).
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 COPY --from=builder /app/.npmrc ./.npmrc
-RUN npm install --omit=dev better-sqlite3 sharp
+RUN npm install --omit=dev better-sqlite3
 
 COPY scripts/render-start.sh ./scripts/render-start.sh
 RUN chmod +x ./scripts/render-start.sh

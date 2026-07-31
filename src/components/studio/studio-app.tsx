@@ -9,7 +9,7 @@ import { ResultScreen, type StudioVersion } from "@/components/studio/result-scr
 import { SettingsPanel } from "@/components/studio/settings-panel";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { FAL_MODEL_OPTIONS } from "@/lib/fal-config";
-import { readJsonSafe } from "@/lib/http";
+import { readJsonSafe, fetchSafe, networkErrorMessage } from "@/lib/http";
 import {
   RANDOM_HOUSE_MODEL_ID,
   type HouseModelSelection,
@@ -104,7 +104,7 @@ export function StudioApp() {
         try {
           const settingsParsed = await readJsonSafe<{
             fal: { generateModel: keyof typeof FAL_MODEL_OPTIONS };
-          }>(await fetch("/api/settings"));
+          }>(await fetchSafe("/api/settings"));
           if (settingsParsed.ok && settingsParsed.data?.fal?.generateModel) {
             setModelName(
               FAL_MODEL_OPTIONS[settingsParsed.data.fal.generateModel]?.label ??
@@ -117,7 +117,7 @@ export function StudioApp() {
           setModelName("fal model");
         }
 
-        const res = await fetch("/api/generate", {
+        const res = await fetchSafe("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -158,7 +158,7 @@ export function StudioApp() {
         if (data.usdPkrRate) setUsdPkrRate(data.usdPkrRate);
         setPhase("result");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Generation failed.");
+        setError(networkErrorMessage(err));
       } finally {
         setBusy(false);
       }
@@ -180,19 +180,25 @@ export function StudioApp() {
       setBusyLabel("Refining…");
       setError(null);
       try {
-        const settingsRes = await fetch("/api/settings");
-        const settings = (await settingsRes.json()) as {
-          fal: { refineModel: keyof typeof FAL_MODEL_OPTIONS };
-        };
-        setModelName(
-          FAL_MODEL_OPTIONS[settings.fal.refineModel]?.label ?? "fal model",
-        );
+        try {
+          const settingsParsed = await readJsonSafe<{
+            fal: { refineModel: keyof typeof FAL_MODEL_OPTIONS };
+          }>(await fetchSafe("/api/settings"));
+          if (settingsParsed.ok && settingsParsed.data?.fal?.refineModel) {
+            setModelName(
+              FAL_MODEL_OPTIONS[settingsParsed.data.fal.refineModel]?.label ??
+                "fal model",
+            );
+          }
+        } catch {
+          /* keep previous label */
+        }
 
         const nextShirt = payload.shirtColour ?? draft.shirtColour;
         const nextTrouser = payload.trouserColour ?? draft.trouserColour;
         const nextFabric = payload.fabric ?? draft.fabric;
 
-        const res = await fetch("/api/refine", {
+        const res = await fetchSafe("/api/refine", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -208,13 +214,16 @@ export function StudioApp() {
             houseModelId: draft.houseModelId,
           }),
         });
-        const data = (await res.json()) as {
+        const parsed = await readJsonSafe<{
           version: ApiVersion;
           totalCost: number;
           usdPkrRate?: number;
           error?: string;
-        };
-        if (!res.ok) throw new Error(data.error || "Refine failed.");
+        }>(res);
+        if (!parsed.ok || !parsed.data?.version) {
+          throw new Error(parsed.error || "Refine failed.");
+        }
+        const data = parsed.data;
 
         setDraft((d) =>
           d
@@ -231,7 +240,7 @@ export function StudioApp() {
         setTotalCost(data.totalCost);
         if (data.usdPkrRate) setUsdPkrRate(data.usdPkrRate);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Refine failed.");
+        setError(networkErrorMessage(err));
       } finally {
         setBusy(false);
       }

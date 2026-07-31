@@ -1,5 +1,3 @@
-import sharp from "sharp";
-
 export type PreprocessResult = {
   /** Contrast-boosted, auto-trimmed sketch ready for fal. */
   processed: Buffer;
@@ -9,40 +7,33 @@ export type PreprocessResult = {
   height: number;
 };
 
+function passthrough(input: Buffer): PreprocessResult {
+  return {
+    processed: input,
+    lineArt: input,
+    width: 0,
+    height: 0,
+  };
+}
+
 /**
- * Preprocess an uploaded sketch: auto-crop whitespace, boost contrast,
- * and produce a clean line version for models that benefit from it.
+ * Preprocess an uploaded sketch.
+ *
+ * Sharp is native and has been segfaulting (exit 139) on Render free Docker.
+ * Only load it when ENABLE_SHARP=1. Production Docker leaves it off.
  */
 export async function preprocessSketch(input: Buffer): Promise<PreprocessResult> {
-  const trimmed = await sharp(input)
-    .rotate()
-    .trim({ threshold: 12 })
-    .resize({
-      width: 1024,
-      height: 1536,
-      fit: "inside",
-      withoutEnlargement: false,
-    })
-    .normalize()
-    .modulate({ brightness: 1.05, saturation: 0.85 })
-    .sharpen({ sigma: 0.8 })
-    .png()
-    .toBuffer({ resolveWithObject: true });
+  if (process.env.ENABLE_SHARP !== "1") {
+    return passthrough(input);
+  }
 
-  const lineArt = await sharp(trimmed.data)
-    .greyscale()
-    .normalize()
-    .linear(1.35, -(128 * 0.35))
-    .threshold(170)
-    .png()
-    .toBuffer();
-
-  return {
-    processed: trimmed.data,
-    lineArt,
-    width: trimmed.info.width,
-    height: trimmed.info.height,
-  };
+  try {
+    const { preprocessWithSharp } = await import("@/lib/image-preprocess-sharp");
+    return await preprocessWithSharp(input);
+  } catch (err) {
+    console.warn("[preprocess] sharp unavailable, uploading original:", err);
+    return passthrough(input);
+  }
 }
 
 export async function bufferToPngBlob(

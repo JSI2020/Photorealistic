@@ -39,3 +39,23 @@ export async function readJsonSafe<T = unknown>(
     };
   }
 }
+
+/** Friendlier message when the browser cannot reach Render at all. */
+export function networkErrorMessage(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/failed to fetch|networkerror|load failed|network request failed/i.test(msg)) {
+    return "Could not reach the server. Render free apps sleep after idle — wait about a minute, refresh, unlock again (847291), then retry. Also confirm FAL_KEY is set in Render → Environment.";
+  }
+  return msg || "Request failed.";
+}
+
+export async function fetchSafe(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (err) {
+    throw new Error(networkErrorMessage(err));
+  }
+}

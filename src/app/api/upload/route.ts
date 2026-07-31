@@ -10,6 +10,7 @@ export async function POST(request: Request) {
     const form = await request.formData();
     const files = form.getAll("files").filter((f): f is File => f instanceof File);
     const kind = String(form.get("kind") ?? "sketch");
+    const sharpEnabled = process.env.ENABLE_SHARP === "1";
 
     if (!files.length) {
       return NextResponse.json({ error: "No files uploaded." }, { status: 400 });
@@ -26,10 +27,12 @@ export async function POST(request: Request) {
     for (const file of files) {
       const bytes = Buffer.from(await file.arrayBuffer());
 
-      if (kind === "old-design") {
-        const blob = new File([new Uint8Array(bytes)], file.name || "old-design.png", {
-          type: file.type || "image/png",
-        });
+      if (kind === "old-design" || !sharpEnabled) {
+        const blob = new File(
+          [new Uint8Array(bytes)],
+          file.name || (kind === "old-design" ? "old-design.png" : "sketch.png"),
+          { type: file.type || "image/png" },
+        );
         const url = await uploadToFal(blob);
         uploaded.push({
           originalName: file.name,
@@ -56,7 +59,6 @@ export async function POST(request: Request) {
           height: processed.height,
         });
       } catch (preprocessErr) {
-        // Sharp missing/broken on some hosts — still upload the original file.
         console.warn("[upload] preprocess failed, uploading original:", preprocessErr);
         const blob = new File(
           [new Uint8Array(bytes)],
