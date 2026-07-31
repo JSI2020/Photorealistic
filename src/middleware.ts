@@ -9,7 +9,11 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  if (pathname === "/unlock" || pathname.startsWith("/api/auth")) {
+  if (
+    pathname === "/unlock" ||
+    pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/health")
+  ) {
     return NextResponse.next();
   }
 

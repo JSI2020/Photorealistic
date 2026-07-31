@@ -201,5 +201,15 @@ export async function refineImage(
 /** Upload a local File/Blob/Buffer to fal storage; returns a public URL. */
 export async function uploadToFal(file: Blob): Promise<string> {
   configureFal();
-  return fal.storage.upload(file);
+  try {
+    return await fal.storage.upload(file);
+  } catch (err) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+          ? err
+          : "fal storage upload failed.";
+    throw new Error(`fal upload failed: ${message}`);
+  }
 }
