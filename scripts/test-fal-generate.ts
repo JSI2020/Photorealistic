@@ -3,7 +3,6 @@
  * Run: npm run fal:test
  */
 import { fal } from "@fal-ai/client";
-import sharp from "sharp";
 import { config as loadEnv } from "dotenv";
 import { resolve } from "node:path";
 
@@ -34,9 +33,8 @@ async function main() {
       <text x="384" y="940" text-anchor="middle" font-family="Georgia, serif" font-size="28" fill="#666">sample kameez sketch</text>
     </svg>`;
 
-  const png = await sharp(Buffer.from(svg)).png().toBuffer();
   const sketchUrl = await fal.storage.upload(
-    new Blob([png], { type: "image/png" }),
+    new Blob([svg], { type: "image/svg+xml" }),
   );
   console.log("Uploaded sketch:", sketchUrl);
 
