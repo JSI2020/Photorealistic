@@ -9,7 +9,11 @@ import {
   houseModelToPersona,
   DEFAULT_HOUSE_MODEL,
 } from "@/lib/model-persona";
-import { buildPrompt } from "@/lib/prompt-builder";
+import {
+  buildPrompt,
+  resolvePromptMode,
+  type PromptMode,
+} from "@/lib/prompt-builder";
 import { getAppSettings } from "@/lib/settings-store";
 
 export const runtime = "nodejs";
@@ -19,6 +23,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       baseImageUrl: string;
       sketchUrls?: string[];
+      oldDesignUrl?: string;
       parentVersionId?: string;
       description?: string;
       shirtColour?: string;
@@ -28,11 +33,19 @@ export async function POST(request: Request) {
       previousTotalCost?: number;
       /** Locked house model for this design (do not randomize on refine). */
       houseModelId?: string;
+      promptMode?: PromptMode;
     };
 
     if (!body.baseImageUrl) {
       return NextResponse.json({ error: "baseImageUrl is required." }, { status: 400 });
     }
+
+    const mode: PromptMode =
+      body.promptMode ??
+      resolvePromptMode({
+        sketchUrls: body.sketchUrls,
+        oldDesignUrl: body.oldDesignUrl,
+      });
 
     const houseModel =
       (body.houseModelId && getHouseModelById(body.houseModelId)) ||
@@ -46,6 +59,7 @@ export async function POST(request: Request) {
       fabric: body.fabric,
       feedback: body.feedback,
       mode: "refine",
+      inputMode: mode,
     });
 
     const settings = await getAppSettings();
@@ -56,16 +70,24 @@ export async function POST(request: Request) {
       fabric: polished.fabric,
       feedback: polished.feedback,
       persona,
+      mode,
     });
+
+    // Do not re-attach the original old-design photo on refine (locks identity).
+    // Sketch refs are OK for structure; old-design mode uses previous result only.
+    const referenceUrls =
+      mode === "old-design" ? [] : (body.sketchUrls ?? []).slice(0, 2);
 
     const result = await refineImage(
       {
         baseImageUrl: body.baseImageUrl,
-        referenceUrls: (body.sketchUrls ?? []).slice(0, 2),
+        referenceUrls,
         prompt: built.prompt,
         negativePrompt: built.negativePrompt,
         seed: built.seed,
         modelKey: settings.fal.refineModel,
+        // Old-design refine needs more movement than sketch fidelity mode.
+        strength: mode === "old-design" ? 0.72 : 0.55,
       },
       settings.fal,
     );
@@ -89,15 +111,17 @@ export async function POST(request: Request) {
 
     const totalCost = (body.previousTotalCost ?? 0) + result.costUsd;
     const rate = getUsdPkrRate();
+    const costPkr = usdToPkr(result.costUsd, rate);
 
     return NextResponse.json({
       version,
       costUsd: result.costUsd,
-      costPkr: usdToPkr(result.costUsd, rate),
+      costPkr,
       totalCost,
       totalCostPkr: usdToPkr(totalCost, rate),
       usdPkrRate: rate,
       modelId: result.modelId,
+      promptMode: mode,
       houseModel: {
         id: houseModel.id,
         name: houseModel.name,

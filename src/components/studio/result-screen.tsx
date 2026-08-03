@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { formatPkr, usdToPkr } from "@/lib/currency";
 
 export type StudioVersion = {
   id: string;
@@ -24,6 +25,8 @@ const QUICK_CHIPS = [
   "More embroidery",
   "Less embroidery",
   "Warmer lighting",
+  "Different pose",
+  "Clearer fabric texture",
 ] as const;
 
 type ResultScreenProps = {
@@ -31,6 +34,8 @@ type ResultScreenProps = {
   versions: StudioVersion[];
   activeVersionId: string;
   totalCost: number;
+  /** Running session total across designs (USD). */
+  sessionCost?: number;
   usdPkrRate?: number;
   sketchPreviews: string[];
   modelName?: string;
@@ -55,6 +60,7 @@ export function ResultScreen({
   versions,
   activeVersionId,
   totalCost,
+  sessionCost = 0,
   usdPkrRate = 278,
   sketchPreviews,
   modelName,
@@ -82,6 +88,10 @@ export function ResultScreen({
 
   if (!active) return null;
 
+  const designPkr = usdToPkr(totalCost, usdPkrRate);
+  const sessionPkr = usdToPkr(sessionCost, usdPkrRate);
+  const lastCallPkr = usdToPkr(active.costUsd || 0, usdPkrRate);
+
   return (
     <section className="mx-auto w-full max-w-5xl space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -93,14 +103,17 @@ export function ResultScreen({
             Result
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            this design:{" "}
-            {new Intl.NumberFormat("en-PK", {
-              style: "currency",
-              currency: "PKR",
-              maximumFractionDigits: 0,
-            }).format(totalCost * usdPkrRate)}{" "}
-            · {versions.length} version{versions.length === 1 ? "" : "s"}
+            this design: {formatPkr(designPkr)} · {versions.length} version
+            {versions.length === 1 ? "" : "s"}
             {houseModelName ? ` · model ${houseModelName}` : ""}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            last call: {formatPkr(lastCallPkr)}
+            {sessionCost > 0
+              ? ` · session total: ${formatPkr(sessionPkr)}`
+              : ""}
+            {" · "}
+            rate Rs {usdPkrRate}/USD
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

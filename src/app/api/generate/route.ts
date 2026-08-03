@@ -9,7 +9,7 @@ import {
   resolveHouseModel,
   type HouseModelSelection,
 } from "@/lib/model-persona";
-import { buildPrompt } from "@/lib/prompt-builder";
+import { buildPrompt, resolvePromptMode } from "@/lib/prompt-builder";
 import { DEFAULT_APP_SETTINGS } from "@/lib/settings";
 import { getAppSettings } from "@/lib/settings-store";
 
@@ -27,12 +27,22 @@ export async function POST(request: Request) {
       houseModelId?: HouseModelSelection;
     };
 
-    const sketchUrls = [
-      ...(body.sketchUrls ?? []),
-      ...(body.oldDesignUrl ? [body.oldDesignUrl] : []),
-    ];
+    const sketchOnly = (body.sketchUrls ?? []).filter(Boolean);
+    const mode = resolvePromptMode({
+      sketchUrls: sketchOnly,
+      oldDesignUrl: body.oldDesignUrl,
+    });
 
-    if (!sketchUrls.length) {
+    // Old-design restyle: use the photo alone. Sketch mode: sketches (+ optional old photo as extra ref).
+    const imageUrls =
+      mode === "old-design"
+        ? [body.oldDesignUrl!].filter(Boolean)
+        : [
+            ...sketchOnly,
+            ...(body.oldDesignUrl ? [body.oldDesignUrl] : []),
+          ];
+
+    if (!imageUrls.length) {
       return NextResponse.json(
         { error: "Upload at least one sketch or an old-design image." },
         { status: 400 },
@@ -56,6 +66,7 @@ export async function POST(request: Request) {
       trouserColour: body.trouserColour,
       fabric: body.fabric,
       mode: "generate",
+      inputMode: mode,
     });
 
     const built = buildPrompt({
@@ -64,15 +75,20 @@ export async function POST(request: Request) {
       trouserColour: polished.trouserColour,
       fabric: polished.fabric,
       persona,
+      mode,
     });
+
+    // Old-design needs more deviation so we don't get a near-photocopy on pass 1.
+    const strength = mode === "old-design" ? 0.82 : undefined;
 
     const result = await generateFromSketch(
       {
-        sketchUrls,
+        sketchUrls: imageUrls,
         prompt: built.prompt,
         negativePrompt: built.negativePrompt,
         seed: built.seed,
         modelKey: settings.fal.generateModel,
+        strength,
       },
       settings.fal,
     );
@@ -98,14 +114,16 @@ export async function POST(request: Request) {
     };
 
     const rate = getUsdPkrRate();
+    const costPkr = usdToPkr(result.costUsd, rate);
     return NextResponse.json({
       version,
       costUsd: result.costUsd,
-      costPkr: usdToPkr(result.costUsd, rate),
+      costPkr,
       totalCost: result.costUsd,
-      totalCostPkr: usdToPkr(result.costUsd, rate),
+      totalCostPkr: costPkr,
       usdPkrRate: rate,
       modelId: result.modelId,
+      promptMode: mode,
       houseModel: {
         id: houseModel.id,
         name: houseModel.name,

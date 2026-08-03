@@ -7,12 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { formatPkr } from "@/lib/currency";
+import { readJsonSafe, fetchSafe } from "@/lib/http";
 import {
   HOUSE_MODELS,
   RANDOM_HOUSE_MODEL_ID,
   type HouseModelSelection,
 } from "@/lib/model-persona";
-import { readJsonSafe, fetchSafe } from "@/lib/http";
 
 export type UploadedAsset = {
   localPreview: string;
@@ -24,6 +25,8 @@ export type UploadedAsset = {
 type InputScreenProps = {
   disabled?: boolean;
   defaultHouseModelId?: HouseModelSelection;
+  /** Running session total in PKR (survives Start over). */
+  sessionCostPkr?: number;
   onGenerate: (payload: {
     sketchUrls: string[];
     oldDesignUrl?: string;
@@ -64,6 +67,7 @@ async function uploadFiles(
 export function InputScreen({
   disabled,
   defaultHouseModelId = RANDOM_HOUSE_MODEL_ID,
+  sessionCostPkr,
   onGenerate,
 }: InputScreenProps) {
   const sketchInputRef = useRef<HTMLInputElement>(null);
@@ -138,6 +142,11 @@ export function InputScreen({
           Upload a fashion sketch (or an old design photo), describe colour and
           fabric, then generate a catalogue shot on the house model.
         </p>
+        {sessionCostPkr != null && sessionCostPkr > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Session total use: {formatPkr(sessionCostPkr)}
+          </p>
+        )}
       </header>
 
       <div
@@ -212,6 +221,10 @@ export function InputScreen({
 
       <div className="space-y-2">
         <Label htmlFor="old-design">Optional old design photo</Label>
+        <p className="text-xs text-muted-foreground">
+          Without a sketch, this restyles the photo on your chosen house model
+          (new face — not the girl in the photo) and upgrades the look.
+        </p>
         <div className="flex flex-wrap items-center gap-3">
           <Button
             type="button"

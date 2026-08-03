@@ -33,6 +33,8 @@ export type GenerateFromSketchInput = {
   seed?: number;
   modelKey?: FalModelKey;
   aspectRatio?: string;
+  /** Higher = more change from the reference (img2img / edit). */
+  strength?: number;
 };
 
 export type RefineImageInput = {
@@ -116,6 +118,8 @@ async function runModel(params: {
     if (model.imageInput === "image_urls") {
       input.image_urls = params.imageUrls;
       if (params.aspectRatio) input.aspect_ratio = params.aspectRatio;
+      // Some edit endpoints honour strength; safe to send when provided.
+      if (params.strength !== undefined) input.strength = params.strength;
     } else {
       input.image_url = params.imageUrls[0];
       if (params.strength !== undefined) input.strength = params.strength;
@@ -175,6 +179,7 @@ export async function generateFromSketch(
     seed: input.seed,
     imageUrls: input.sketchUrls,
     aspectRatio: input.aspectRatio ?? "2:3",
+    strength: input.strength,
   });
 }
 

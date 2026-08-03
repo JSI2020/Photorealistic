@@ -10,6 +10,8 @@ export type PromptPolishInput = {
   fabric?: string;
   feedback?: string;
   mode: "generate" | "refine";
+  /** sketch = fidelity; old-design = restyle + new house model. */
+  inputMode?: "sketch" | "old-design";
 };
 
 export type PromptPolishResult = {
@@ -40,7 +42,7 @@ function getBaseUrl(): string {
   );
 }
 
-const SYSTEM = `You polish short, messy fashion notes into clear English for a photoreal fashion catalogue image prompt.
+const SYSTEM_SKETCH = `You polish short, messy fashion notes into clear English for a photoreal fashion catalogue image prompt.
 
 Rules:
 - Output ONLY valid JSON with keys: description, shirtColour, trouserColour, fabric, feedback (all strings; use "" if unused).
@@ -51,10 +53,26 @@ Rules:
 - Preserve the user's intent; do not contradict explicit colours they named.
 - For refine mode, put the change request mainly in "feedback"; keep description as the stable garment summary if provided.`;
 
+const SYSTEM_OLD_DESIGN = `You polish short, messy fashion notes for RESTYLING an old design PHOTO into a fresh catalogue shot on a NEW house model.
+
+Rules:
+- Output ONLY valid JSON with keys: description, shirtColour, trouserColour, fabric, feedback (all strings; use "" if unused).
+- Keep the garment type and overall idea, but encourage a clear upgrade: richer colour, better fabric realism, cleaner embroidery, better fit, studio lighting.
+- Vague asks like "a bit better" or "a bit different" MUST become concrete visual changes (e.g. deeper emerald, crisper lawn texture, slightly longer hem drape, warmer daylight) — not vague praise.
+- Never ask to keep the original model's face or identity.
+- Keep modest fashion catalogue tone. No objectifying language.
+- Prefer short phrases suitable to append to an image prompt.
+- For refine mode, put the change request mainly in "feedback".`;
+
+function systemFor(input: PromptPolishInput): string {
+  return input.inputMode === "old-design" ? SYSTEM_OLD_DESIGN : SYSTEM_SKETCH;
+}
+
 function buildUserPayload(input: PromptPolishInput): string {
   return JSON.stringify(
     {
       mode: input.mode,
+      inputMode: input.inputMode ?? "sketch",
       description: input.description ?? "",
       shirtColour: input.shirtColour ?? "",
       trouserColour: input.trouserColour ?? "",
@@ -140,7 +158,7 @@ export async function polishUserPrompt(
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: SYSTEM },
+          { role: "system", content: systemFor(input) },
           {
             role: "user",
             content: `Polish these fields for a sketch-to-photoreal fashion tool:\n${buildUserPayload(input)}`,

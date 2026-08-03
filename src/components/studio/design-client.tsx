@@ -137,16 +137,17 @@ export function DesignClient({ designId }: { designId: string }) {
         body: JSON.stringify({
           baseImageUrl: active.imageUrl,
           sketchUrls,
+          oldDesignUrl: meta.oldDesignUrl,
           parentVersionId: active.id,
           description: meta.description,
           shirtColour: nextShirt,
           trouserColour: nextTrouser,
           fabric: nextFabric,
           feedback: payload.feedback,
-            previousTotalCost: totalCost,
-            houseModelId: meta.houseModelId,
-          }),
-        });
+          previousTotalCost: totalCost,
+          houseModelId: meta.houseModelId,
+        }),
+      });
       const data = (await res.json()) as {
         version: ApiVersion;
         totalCost: number;

@@ -8,12 +8,14 @@ import { InputScreen } from "@/components/studio/input-screen";
 import { ResultScreen, type StudioVersion } from "@/components/studio/result-screen";
 import { SettingsPanel } from "@/components/studio/settings-panel";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { formatPkr, usdToPkr } from "@/lib/currency";
 import { FAL_MODEL_OPTIONS } from "@/lib/fal-config";
 import { readJsonSafe, fetchSafe, networkErrorMessage } from "@/lib/http";
 import {
   RANDOM_HOUSE_MODEL_ID,
   type HouseModelSelection,
 } from "@/lib/model-persona";
+import type { PromptMode } from "@/lib/prompt-builder";
 import { cn } from "@/lib/utils";
 
 type Phase = "input" | "result";
@@ -27,6 +29,7 @@ type DraftMeta = {
   oldDesignUrl?: string;
   houseModelId: string;
   houseModelName: string;
+  promptMode: PromptMode;
 };
 
 type ApiVersion = StudioVersion & {
@@ -48,6 +51,7 @@ export function StudioApp() {
   const [versions, setVersions] = useState<ApiVersion[]>([]);
   const [activeVersionId, setActiveVersionId] = useState<string>("");
   const [totalCost, setTotalCost] = useState(0);
+  const [sessionCost, setSessionCost] = useState(0);
   const [usdPkrRate, setUsdPkrRate] = useState(278);
   const [sketchPreviews, setSketchPreviews] = useState<string[]>([]);
   const [draft, setDraft] = useState<DraftMeta | null>(null);
@@ -133,7 +137,9 @@ export function StudioApp() {
         const parsed = await readJsonSafe<{
           version: ApiVersion;
           totalCost: number;
+          costUsd?: number;
           usdPkrRate?: number;
+          promptMode?: PromptMode;
           houseModel?: { id: string; name: string };
           error?: string;
         }>(res);
@@ -141,6 +147,7 @@ export function StudioApp() {
           throw new Error(parsed.error || "Generation failed.");
         }
         const data = parsed.data;
+        const callCost = data.costUsd ?? data.version.costUsd ?? data.totalCost;
 
         setDraft({
           description: payload.description,
@@ -151,10 +158,12 @@ export function StudioApp() {
           oldDesignUrl: payload.oldDesignUrl,
           houseModelId: data.houseModel?.id ?? "ayesha",
           houseModelName: data.houseModel?.name ?? "Ayesha",
+          promptMode: data.promptMode ?? "sketch",
         });
         setVersions([data.version]);
         setActiveVersionId(data.version.id);
         setTotalCost(data.totalCost);
+        setSessionCost((s) => s + callCost);
         if (data.usdPkrRate) setUsdPkrRate(data.usdPkrRate);
         setPhase("result");
       } catch (err) {
@@ -204,6 +213,7 @@ export function StudioApp() {
           body: JSON.stringify({
             baseImageUrl: active.imageUrl,
             sketchUrls: draft.sketchUrls,
+            oldDesignUrl: draft.oldDesignUrl,
             parentVersionId: active.id,
             description: draft.description,
             shirtColour: nextShirt,
@@ -212,11 +222,13 @@ export function StudioApp() {
             feedback: payload.feedback,
             previousTotalCost: totalCost,
             houseModelId: draft.houseModelId,
+            promptMode: draft.promptMode,
           }),
         });
         const parsed = await readJsonSafe<{
           version: ApiVersion;
           totalCost: number;
+          costUsd?: number;
           usdPkrRate?: number;
           error?: string;
         }>(res);
@@ -224,6 +236,7 @@ export function StudioApp() {
           throw new Error(parsed.error || "Refine failed.");
         }
         const data = parsed.data;
+        const callCost = data.costUsd ?? data.version.costUsd ?? 0;
 
         setDraft((d) =>
           d
@@ -238,6 +251,7 @@ export function StudioApp() {
         setVersions((prev) => [...prev, data.version]);
         setActiveVersionId(data.version.id);
         setTotalCost(data.totalCost);
+        setSessionCost((s) => s + callCost);
         if (data.usdPkrRate) setUsdPkrRate(data.usdPkrRate);
       } catch (err) {
         setError(networkErrorMessage(err));
@@ -291,7 +305,15 @@ export function StudioApp() {
           <Link href="/" className="font-serif text-lg tracking-tight">
             Sketch → Photoreal
           </Link>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 sm:gap-2">
+            {sessionCost > 0 && (
+              <span
+                className="hidden text-xs text-muted-foreground sm:inline"
+                title={`Rate Rs ${usdPkrRate} / USD`}
+              >
+                session {formatPkr(usdToPkr(sessionCost, usdPkrRate))}
+              </span>
+            )}
             <Link
               href="/gallery"
               className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1.5")}
@@ -318,6 +340,9 @@ export function StudioApp() {
             <InputScreen
               disabled={busy}
               defaultHouseModelId={defaultHouseModelId}
+              sessionCostPkr={
+                sessionCost > 0 ? usdToPkr(sessionCost, usdPkrRate) : undefined
+              }
               onGenerate={handleGenerate}
             />
             {busy && (
@@ -339,6 +364,7 @@ export function StudioApp() {
             versions={versions}
             activeVersionId={activeVersionId}
             totalCost={totalCost}
+            sessionCost={sessionCost}
             usdPkrRate={usdPkrRate}
             sketchPreviews={sketchPreviews}
             modelName={modelName}
