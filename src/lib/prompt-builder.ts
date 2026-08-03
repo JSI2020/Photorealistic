@@ -29,11 +29,15 @@ const REAL_SCENE =
 const CAMERA =
   "Full-length or three-quarter fashion photography, 85mm lens look, sharp focus on the garment, true-to-life fabric texture and drape, modest poised styling.";
 
+/** Avoid blank “AI mannequin” faces — subtle real expression. */
+const EXPRESSION =
+  "Facial expression must feel real and human: a soft genuine closed-mouth smile or gentle half-smile, slight warmth and life in the eyes, natural micro-expression as in real fashion photography. Not blank, vacant, deadpan, emotionless, frozen, or mannequin-like. Keep it modest and tasteful — no exaggerated grin.";
+
 const STYLE =
   "High-end modest fashion editorial photography, photorealistic, shot on a real camera, not illustrated or stylised.";
 
 const SHARED_NEGATIVES =
-  "watermark, text overlay, logo, arrow, cross symbol, UI icons, screenshot chrome, collage, flat seamless paper backdrop, deformed hands, extra limbs, illustrated, cartoon, CGI, plastic skin";
+  "watermark, text overlay, logo, arrow, cross symbol, UI icons, screenshot chrome, collage, flat seamless paper backdrop, blank stare, deadpan face, emotionless expression, vacant eyes, mannequin face, uncanny valley, deformed hands, extra limbs, illustrated, cartoon, CGI, plastic skin";
 
 export const DEFAULT_NEGATIVE_PROMPT =
   `no altered neckline or hem, no distorted embroidery, no oversaturation, no extra garments, ${SHARED_NEGATIVES}`;
@@ -198,6 +202,7 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
       modelLine,
       variableBlock,
       sceneLine,
+      EXPRESSION,
       CAMERA,
       STYLE,
     ],
