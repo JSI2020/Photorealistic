@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { formatPkr, usdToPkr } from "@/lib/currency";
+import { POSE_PRESETS } from "@/lib/prompt-builder";
 
 export type StudioVersion = {
   id: string;
@@ -25,7 +26,9 @@ const QUICK_CHIPS = [
   "More embroidery",
   "Less embroidery",
   "Warmer lighting",
-  "Different pose",
+  "Real outdoor courtyard background",
+  "Marble foyer background",
+  "Garden path background",
   "Clearer fabric texture",
 ] as const;
 
@@ -225,6 +228,28 @@ export function ResultScreen({
               {chip}
             </button>
           ))}
+        </div>
+
+        <div className="space-y-2">
+          <Label>Pose / angle</Label>
+          <p className="text-xs text-muted-foreground">
+            Runs a refine with a new real fashion-photography stance (same dress +
+            house model).
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {POSE_PRESETS.map((pose) => (
+              <Button
+                key={pose.id}
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void onRefine({ feedback: pose.feedback })}
+              >
+                {pose.label}
+              </Button>
+            ))}
+          </div>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3">

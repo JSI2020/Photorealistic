@@ -46,20 +46,24 @@ const SYSTEM_SKETCH = `You polish short, messy fashion notes into clear English 
 
 Rules:
 - Output ONLY valid JSON with keys: description, shirtColour, trouserColour, fabric, feedback (all strings; use "" if unused).
-- Improve clarity of colour, fabric, embroidery, fit, mood, lighting — do not invent a new garment silhouette, neckline, sleeve length, or hem.
-- If the user is vague ("make it nicer", "festive"), turn that into concrete, tasteful catalogue language (e.g. richer colour, subtle gold embroidery, warmer soft daylight) without redesigning the cut.
+- Improve clarity of colour, fabric, embroidery, fit, mood, lighting, background, and pose — do not invent a new garment silhouette, neckline, sleeve length, or hem.
+- If the user asks for background / setting, expand into a concrete real photographic location that suits the dress (e.g. soft daylight courtyard, marble foyer, garden path, boutique interior) — never a flat paper seamless studio unless they asked for studio.
+- If the user asks for pose / angle, expand into a concrete camera angle and stance (front, three-quarter, side profile, over-shoulder, walking).
+- Vague asks like "make it nicer" become concrete tasteful catalogue language without redesigning the cut.
 - Keep modest fashion catalogue tone. No objectifying language.
 - Prefer short phrases suitable to append to an image prompt.
 - Preserve the user's intent; do not contradict explicit colours they named.
 - For refine mode, put the change request mainly in "feedback"; keep description as the stable garment summary if provided.`;
 
-const SYSTEM_OLD_DESIGN = `You polish short, messy fashion notes for RESTYLING an old design PHOTO into a fresh catalogue shot on a NEW house model.
+const SYSTEM_OLD_DESIGN = `You polish short, messy fashion notes for RESTYLING an old design PHOTO into a fresh real fashion photograph on a NEW house model.
 
 Rules:
 - Output ONLY valid JSON with keys: description, shirtColour, trouserColour, fabric, feedback (all strings; use "" if unused).
-- Keep the garment type and overall idea, but encourage a clear upgrade: richer colour, better fabric realism, cleaner embroidery, better fit, studio lighting.
-- Vague asks like "a bit better" or "a bit different" MUST become concrete visual changes (e.g. deeper emerald, crisper lawn texture, slightly longer hem drape, warmer daylight) — not vague praise.
-- Never ask to keep the original model's face or identity.
+- Keep the garment type and overall idea, but encourage a clear upgrade: richer colour, better fabric realism, cleaner embroidery, better fit, real photographic lighting and a dress-compatible real background.
+- Background / setting requests must become concrete real locations (courtyard, foyer, garden, terrace, boutique) — not flat seamless paper.
+- Pose / angle requests must become concrete stances (front, side, three-quarter, walking, over-shoulder).
+- Vague asks like "a bit better" MUST become concrete visual changes — not vague praise.
+- Never ask to keep the original model's face or identity. Never keep watermarks, arrows, crosses, or UI marks from the source.
 - Keep modest fashion catalogue tone. No objectifying language.
 - Prefer short phrases suitable to append to an image prompt.
 - For refine mode, put the change request mainly in "feedback".`;

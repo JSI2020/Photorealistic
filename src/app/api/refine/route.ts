@@ -11,6 +11,8 @@ import {
 } from "@/lib/model-persona";
 import {
   buildPrompt,
+  feedbackRequestsBackground,
+  feedbackRequestsPose,
   resolvePromptMode,
   type PromptMode,
 } from "@/lib/prompt-builder";
@@ -74,9 +76,17 @@ export async function POST(request: Request) {
     });
 
     // Do not re-attach the original old-design photo on refine (locks identity).
-    // Sketch refs are OK for structure; old-design mode uses previous result only.
     const referenceUrls =
       mode === "old-design" ? [] : (body.sketchUrls ?? []).slice(0, 2);
+
+    const bigSceneChange =
+      feedbackRequestsBackground(polished.feedback ?? body.feedback) ||
+      feedbackRequestsPose(polished.feedback ?? body.feedback);
+
+    let strength = mode === "old-design" ? 0.72 : 0.55;
+    if (bigSceneChange) {
+      strength = mode === "old-design" ? 0.84 : 0.78;
+    }
 
     const result = await refineImage(
       {
@@ -86,8 +96,7 @@ export async function POST(request: Request) {
         negativePrompt: built.negativePrompt,
         seed: built.seed,
         modelKey: settings.fal.refineModel,
-        // Old-design refine needs more movement than sketch fidelity mode.
-        strength: mode === "old-design" ? 0.72 : 0.55,
+        strength,
       },
       settings.fal,
     );

@@ -139,8 +139,9 @@ export function InputScreen({
           Sketch → Photoreal
         </h1>
         <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-          Upload a fashion sketch (or an old design photo), describe colour and
-          fabric, then generate a catalogue shot on the house model.
+          Upload a fashion sketch or old design photo. Results use a real
+          photographic background that suits the dress, on your house model —
+          watermarks and extra marks from the source are dropped.
         </p>
         {sessionCostPkr != null && sessionCostPkr > 0 && (
           <p className="text-xs text-muted-foreground">
