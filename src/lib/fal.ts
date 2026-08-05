@@ -198,14 +198,14 @@ export async function generateFromText(
   const prompt = neg ? `${input.prompt} Avoid: ${neg}.` : input.prompt;
 
   try {
-    const falInput: Record<string, unknown> = {
+    const falInput = {
       prompt,
-      num_images: 1,
-      output_format: "png",
-      image_size: "portrait_4_3",
+      num_images: 1 as const,
+      output_format: "png" as const,
+      image_size: "portrait_4_3" as const,
       enable_safety_checker: true,
+      ...(input.seed !== undefined ? { seed: input.seed } : {}),
     };
-    if (input.seed !== undefined) falInput.seed = input.seed;
 
     const result = await fal.subscribe(modelId, {
       input: falInput,
