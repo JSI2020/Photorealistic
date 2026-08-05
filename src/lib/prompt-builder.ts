@@ -54,18 +54,18 @@ export type PromptMode = "sketch" | "old-design" | "description";
 export const INPUT_SOURCE_TABS = [
   {
     id: "sketch" as const,
-    label: "Sketch",
-    hint: "Upload one or more fashion sketches",
+    label: "1 · Sketch",
+    hint: "Sketch(es) + model · description optional",
   },
   {
     id: "old-design" as const,
-    label: "Old design",
-    hint: "Restyle a photo on the house model",
+    label: "2 · Old design",
+    hint: "Design photo(s) + model · description optional",
   },
   {
     id: "description" as const,
-    label: "Description",
-    hint: "Create from words only — no upload",
+    label: "3 · Description",
+    hint: "Model + description only · no upload",
   },
 ] as const;
 
@@ -260,6 +260,7 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
 export function resolvePromptMode(input: {
   sketchUrls?: string[] | null;
   oldDesignUrl?: string | null;
+  oldDesignUrls?: string[] | null;
   sourceMode?: PromptMode | null;
   hasDescription?: boolean;
 }): PromptMode {
@@ -271,7 +272,10 @@ export function resolvePromptMode(input: {
     return input.sourceMode;
   }
   const hasSketch = Boolean(input.sketchUrls?.some((u) => u?.trim()));
-  const hasOld = Boolean(input.oldDesignUrl?.trim());
+  const hasOld = Boolean(
+    input.oldDesignUrl?.trim() ||
+      input.oldDesignUrls?.some((u) => u?.trim()),
+  );
   if (hasOld && !hasSketch) return "old-design";
   if (!hasSketch && !hasOld && input.hasDescription) return "description";
   return "sketch";

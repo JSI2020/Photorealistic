@@ -34,6 +34,7 @@ type InputScreenProps = {
   onGenerate: (payload: {
     sourceMode: PromptMode;
     sketchUrls: string[];
+    oldDesignUrls: string[];
     oldDesignUrl?: string;
     description: string;
     shirtColour: string;
@@ -79,7 +80,7 @@ export function InputScreen({
   const oldInputRef = useRef<HTMLInputElement>(null);
   const [sourceMode, setSourceMode] = useState<PromptMode>("sketch");
   const [sketches, setSketches] = useState<UploadedAsset[]>([]);
-  const [oldDesign, setOldDesign] = useState<UploadedAsset | null>(null);
+  const [oldDesigns, setOldDesigns] = useState<UploadedAsset[]>([]);
   const [description, setDescription] = useState("");
   const [shirtColour, setShirtColour] = useState("");
   const [trouserColour, setTrouserColour] = useState("");
@@ -94,18 +95,13 @@ export function InputScreen({
     setHouseModelId(defaultHouseModelId);
   }, [defaultHouseModelId]);
 
-  const hasText =
-    Boolean(description.trim()) ||
-    Boolean(shirtColour.trim()) ||
-    Boolean(trouserColour.trim()) ||
-    Boolean(fabric.trim());
-
+  /** Option 3 requires a written description; colours/fabric stay optional. */
   const canGenerate =
     sourceMode === "sketch"
       ? sketches.length > 0
       : sourceMode === "old-design"
-        ? Boolean(oldDesign)
-        : hasText;
+        ? oldDesigns.length > 0
+        : Boolean(description.trim());
 
   const addSketches = useCallback(async (files: FileList | File[]) => {
     const list = Array.from(files).filter((f) => f.type.startsWith("image/"));
@@ -122,14 +118,14 @@ export function InputScreen({
     }
   }, []);
 
-  const addOldDesign = useCallback(async (files: FileList | File[]) => {
-    const file = Array.from(files).find((f) => f.type.startsWith("image/"));
-    if (!file) return;
+  const addOldDesigns = useCallback(async (files: FileList | File[]) => {
+    const list = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (!list.length) return;
     setUploading(true);
     setError(null);
     try {
-      const [uploaded] = await uploadFiles([file], "old-design");
-      if (uploaded) setOldDesign(uploaded);
+      const uploaded = await uploadFiles(list, "old-design");
+      setOldDesigns((prev) => [...prev, ...uploaded]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Old design upload failed.");
     } finally {
@@ -139,18 +135,13 @@ export function InputScreen({
 
   const resetInputs = () => {
     sketches.forEach((s) => URL.revokeObjectURL(s.localPreview));
-    if (oldDesign) URL.revokeObjectURL(oldDesign.localPreview);
+    oldDesigns.forEach((s) => URL.revokeObjectURL(s.localPreview));
     setSketches([]);
-    setOldDesign(null);
+    setOldDesigns([]);
     setDescription("");
     setShirtColour("");
     setTrouserColour("");
     setFabric("");
-    setError(null);
-  };
-
-  const switchTab = (next: PromptMode) => {
-    setSourceMode(next);
     setError(null);
   };
 
@@ -161,8 +152,8 @@ export function InputScreen({
           Sketch → Photoreal
         </h1>
         <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-          Choose how you want to start — sketch, old design photo, or words only
-          — then generate a real photograph on your house model.
+          Pick one starting option below. Catalogue model is always used;
+          description and colours are optional except on Description.
         </p>
         {sessionCostPkr != null && sessionCostPkr > 0 && (
           <p className="text-xs text-muted-foreground">
@@ -174,7 +165,7 @@ export function InputScreen({
       <div
         className="grid grid-cols-3 gap-1 rounded-xl border border-border bg-muted/30 p-1"
         role="tablist"
-        aria-label="Input source"
+        aria-label="How to start"
       >
         {INPUT_SOURCE_TABS.map((tab) => {
           const active = sourceMode === tab.id;
@@ -185,7 +176,10 @@ export function InputScreen({
               role="tab"
               aria-selected={active}
               disabled={disabled}
-              onClick={() => switchTab(tab.id)}
+              onClick={() => {
+                setSourceMode(tab.id);
+                setError(null);
+              }}
               className={cn(
                 "rounded-lg px-2 py-2.5 text-center transition",
                 active
@@ -202,8 +196,14 @@ export function InputScreen({
         })}
       </div>
 
+      {/* —— Option 1: sketches —— */}
       {sourceMode === "sketch" && (
         <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            <strong className="font-medium text-foreground">Required:</strong>{" "}
+            one or more sketches. Description, shirt/trouser colour and fabric
+            are optional.
+          </p>
           <div
             className={`rounded-xl border border-dashed px-4 py-10 text-center transition-colors ${
               dragOver
@@ -247,7 +247,6 @@ export function InputScreen({
               }}
             />
           </div>
-
           {sketches.length > 0 && (
             <div className="flex flex-wrap gap-3">
               {sketches.map((s, i) => (
@@ -276,69 +275,101 @@ export function InputScreen({
         </div>
       )}
 
+      {/* —— Option 2: old design(s) —— */}
       {sourceMode === "old-design" && (
-        <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
+        <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Restyles the photo on your chosen house model (new face — not the
-            girl in the photo) and upgrades the look. Watermarks and arrows are
-            dropped.
+            <strong className="font-medium text-foreground">Required:</strong>{" "}
+            one or more old design photos. Description, shirt/trouser colour and
+            fabric are optional. The house model replaces the girl in the photo.
           </p>
-          <div className="flex flex-wrap items-center gap-3">
+          <div
+            className={`rounded-xl border border-dashed px-4 py-10 text-center transition-colors ${
+              dragOver
+                ? "border-foreground/40 bg-muted/40"
+                : "border-border bg-muted/20"
+            }`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              void addOldDesigns(e.dataTransfer.files);
+            }}
+          >
+            <ImagePlus className="mx-auto mb-3 size-8 text-muted-foreground" />
+            <p className="text-sm text-foreground">Drop old design photos here</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              PNG, JPG, WEBP — multiple files OK
+            </p>
             <Button
               type="button"
               variant="outline"
+              className="mt-4"
               disabled={disabled || uploading}
               onClick={() => oldInputRef.current?.click()}
             >
-              Upload old design
+              Choose old designs
             </Button>
             <input
               ref={oldInputRef}
               type="file"
               accept="image/*"
+              multiple
               className="hidden"
               onChange={(e) => {
-                if (e.target.files) void addOldDesign(e.target.files);
+                if (e.target.files) void addOldDesigns(e.target.files);
                 e.target.value = "";
               }}
             />
-            {oldDesign && (
-              <div className="relative">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={oldDesign.localPreview}
-                  alt="Old design"
-                  className="size-24 rounded-md object-cover ring-1 ring-border"
-                />
-                <button
-                  type="button"
-                  className="absolute -right-1.5 -top-1.5 rounded-full bg-foreground p-0.5 text-background"
-                  aria-label="Remove old design"
-                  onClick={() => {
-                    URL.revokeObjectURL(oldDesign.localPreview);
-                    setOldDesign(null);
-                  }}
-                >
-                  <X className="size-3.5" />
-                </button>
-              </div>
-            )}
           </div>
+          {oldDesigns.length > 0 && (
+            <div className="flex flex-wrap gap-3">
+              {oldDesigns.map((s, i) => (
+                <div key={`${s.url}-${i}`} className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={s.localPreview}
+                    alt={s.name}
+                    className="size-24 rounded-md object-cover ring-1 ring-border"
+                  />
+                  <button
+                    type="button"
+                    className="absolute -right-1.5 -top-1.5 rounded-full bg-foreground p-0.5 text-background"
+                    aria-label="Remove old design"
+                    onClick={() => {
+                      URL.revokeObjectURL(s.localPreview);
+                      setOldDesigns((prev) =>
+                        prev.filter((_, idx) => idx !== i),
+                      );
+                    }}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
+      {/* —— Option 3: description only —— */}
       {sourceMode === "description" && (
         <div className="rounded-xl border border-border bg-muted/20 p-4">
           <p className="text-sm text-muted-foreground">
-            No upload needed. Describe the outfit clearly — cut, colours,
-            fabric, embroidery — and we&apos;ll create a photoreal catalogue
-            shot on the house model.
+            <strong className="font-medium text-foreground">Required:</strong>{" "}
+            catalogue model + written description. Shirt/trouser colour and
+            fabric are optional. No sketch or photo upload.
           </p>
         </div>
       )}
 
+      {/* Shared: always catalogue model */}
       <div className="space-y-2">
-        <Label htmlFor="house-model">Catalogue model</Label>
+        <Label htmlFor="house-model">Catalogue model *</Label>
         <select
           id="house-model"
           className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
@@ -364,15 +395,15 @@ export function InputScreen({
 
       <div className="space-y-2">
         <Label htmlFor="description">
-          {sourceMode === "description" ? "Outfit description" : "Description"}
+          Description
           {sourceMode === "description" ? " *" : " (optional)"}
         </Label>
         <Textarea
           id="description"
           placeholder={
             sourceMode === "description"
-              ? 'e.g. "emerald lawn kameez with ivory palazzo, light gold embroidery on neckline, soft outdoor courtyard"'
-              : 'e.g. "red kameez, ivory palazzo, lawn fabric"'
+              ? 'Required — e.g. "emerald lawn kameez with ivory palazzo, light gold embroidery on neckline"'
+              : 'Optional — e.g. "make it festive, warmer lighting"'
           }
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -383,7 +414,7 @@ export function InputScreen({
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="space-y-2">
-          <Label htmlFor="shirt">Shirt colour</Label>
+          <Label htmlFor="shirt">Shirt colour (optional)</Label>
           <Input
             id="shirt"
             placeholder="emerald"
@@ -393,7 +424,7 @@ export function InputScreen({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="trouser">Trouser colour</Label>
+          <Label htmlFor="trouser">Trouser colour (optional)</Label>
           <Input
             id="trouser"
             placeholder="ivory"
@@ -403,7 +434,7 @@ export function InputScreen({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="fabric">Fabric</Label>
+          <Label htmlFor="fabric">Fabric (optional)</Label>
           <Input
             id="fabric"
             placeholder="lawn"
@@ -425,12 +456,15 @@ export function InputScreen({
           type="button"
           size="lg"
           disabled={!canGenerate || disabled || uploading}
-          onClick={() =>
+          onClick={() => {
+            const oldUrls =
+              sourceMode === "old-design" ? oldDesigns.map((s) => s.url) : [];
             void onGenerate({
               sourceMode,
-              sketchUrls: sourceMode === "sketch" ? sketches.map((s) => s.url) : [],
-              oldDesignUrl:
-                sourceMode === "old-design" ? oldDesign?.url : undefined,
+              sketchUrls:
+                sourceMode === "sketch" ? sketches.map((s) => s.url) : [],
+              oldDesignUrls: oldUrls,
+              oldDesignUrl: oldUrls[0],
               description,
               shirtColour,
               trouserColour,
@@ -438,12 +472,12 @@ export function InputScreen({
               sketchPreviews:
                 sourceMode === "sketch"
                   ? sketches.map((s) => s.localPreview)
-                  : sourceMode === "old-design" && oldDesign
-                    ? [oldDesign.localPreview]
+                  : sourceMode === "old-design"
+                    ? oldDesigns.map((s) => s.localPreview)
                     : [],
               houseModelId,
-            })
-          }
+            });
+          }}
         >
           {uploading ? "Uploading…" : "Generate"}
         </Button>

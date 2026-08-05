@@ -92,6 +92,7 @@ export function StudioApp() {
     async (payload: {
       sourceMode: PromptMode;
       sketchUrls: string[];
+      oldDesignUrls: string[];
       oldDesignUrl?: string;
       description: string;
       shirtColour: string;
@@ -128,7 +129,8 @@ export function StudioApp() {
           body: JSON.stringify({
             sourceMode: payload.sourceMode,
             sketchUrls: payload.sketchUrls,
-            oldDesignUrl: payload.oldDesignUrl,
+            oldDesignUrls: payload.oldDesignUrls,
+            oldDesignUrl: payload.oldDesignUrl ?? payload.oldDesignUrls[0],
             description: payload.description,
             shirtColour: payload.shirtColour,
             trouserColour: payload.trouserColour,
@@ -157,7 +159,7 @@ export function StudioApp() {
           trouserColour: payload.trouserColour,
           fabric: payload.fabric,
           sketchUrls: payload.sketchUrls,
-          oldDesignUrl: payload.oldDesignUrl,
+          oldDesignUrl: payload.oldDesignUrl ?? payload.oldDesignUrls[0],
           houseModelId: data.houseModel?.id ?? "ayesha",
           houseModelName: data.houseModel?.name ?? "Ayesha",
           promptMode: data.promptMode ?? payload.sourceMode,

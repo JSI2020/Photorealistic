@@ -24,6 +24,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       sketchUrls?: string[];
       oldDesignUrl?: string;
+      oldDesignUrls?: string[];
       description?: string;
       shirtColour?: string;
       trouserColour?: string;
@@ -33,25 +34,28 @@ export async function POST(request: Request) {
     };
 
     const sketchOnly = (body.sketchUrls ?? []).filter(Boolean);
-    const hasText = Boolean(
-      body.description?.trim() ||
-        body.shirtColour?.trim() ||
-        body.trouserColour?.trim() ||
-        body.fabric?.trim(),
-    );
+    const oldDesigns = [
+      ...(body.oldDesignUrls ?? []),
+      ...(body.oldDesignUrl ? [body.oldDesignUrl] : []),
+    ].filter(Boolean);
+    // de-dupe while preserving order
+    const oldOnly = [...new Set(oldDesigns)];
+
+    const hasDescription = Boolean(body.description?.trim());
 
     const mode = resolvePromptMode({
       sketchUrls: sketchOnly,
-      oldDesignUrl: body.oldDesignUrl,
+      oldDesignUrl: oldOnly[0],
+      oldDesignUrls: oldOnly,
       sourceMode: body.sourceMode,
-      hasDescription: hasText,
+      hasDescription,
     });
 
-    if (mode === "description" && !hasText) {
+    if (mode === "description" && !hasDescription) {
       return NextResponse.json(
         {
           error:
-            "Add a description (and optional colours/fabric) for description-only mode.",
+            "Description mode needs a written description. Colours and fabric are optional.",
         },
         { status: 400 },
       );
@@ -64,19 +68,15 @@ export async function POST(request: Request) {
       );
     }
 
-    if (mode === "old-design" && !body.oldDesignUrl?.trim()) {
+    if (mode === "old-design" && !oldOnly.length) {
       return NextResponse.json(
-        { error: "Upload an old design photo." },
+        { error: "Upload at least one old design photo." },
         { status: 400 },
       );
     }
 
     const imageUrls =
-      mode === "old-design"
-        ? [body.oldDesignUrl!].filter(Boolean)
-        : mode === "sketch"
-          ? sketchOnly
-          : [];
+      mode === "old-design" ? oldOnly : mode === "sketch" ? sketchOnly : [];
 
     let settings = DEFAULT_APP_SETTINGS;
     try {
