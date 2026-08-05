@@ -3,13 +3,17 @@ import { randomUUID } from "node:crypto";
 
 import { getUsdPkrRate, usdToPkr } from "@/lib/currency";
 import { polishUserPrompt } from "@/lib/deepseek";
-import { generateFromSketch } from "@/lib/fal";
+import { generateFromSketch, generateFromText } from "@/lib/fal";
 import {
   houseModelToPersona,
   resolveHouseModel,
   type HouseModelSelection,
 } from "@/lib/model-persona";
-import { buildPrompt, resolvePromptMode } from "@/lib/prompt-builder";
+import {
+  buildPrompt,
+  resolvePromptMode,
+  type PromptMode,
+} from "@/lib/prompt-builder";
 import { DEFAULT_APP_SETTINGS } from "@/lib/settings";
 import { getAppSettings } from "@/lib/settings-store";
 
@@ -25,29 +29,54 @@ export async function POST(request: Request) {
       trouserColour?: string;
       fabric?: string;
       houseModelId?: HouseModelSelection;
+      sourceMode?: PromptMode;
     };
 
     const sketchOnly = (body.sketchUrls ?? []).filter(Boolean);
+    const hasText = Boolean(
+      body.description?.trim() ||
+        body.shirtColour?.trim() ||
+        body.trouserColour?.trim() ||
+        body.fabric?.trim(),
+    );
+
     const mode = resolvePromptMode({
       sketchUrls: sketchOnly,
       oldDesignUrl: body.oldDesignUrl,
+      sourceMode: body.sourceMode,
+      hasDescription: hasText,
     });
 
-    // Old-design restyle: use the photo alone. Sketch mode: sketches (+ optional old photo as extra ref).
-    const imageUrls =
-      mode === "old-design"
-        ? [body.oldDesignUrl!].filter(Boolean)
-        : [
-            ...sketchOnly,
-            ...(body.oldDesignUrl ? [body.oldDesignUrl] : []),
-          ];
-
-    if (!imageUrls.length) {
+    if (mode === "description" && !hasText) {
       return NextResponse.json(
-        { error: "Upload at least one sketch or an old-design image." },
+        {
+          error:
+            "Add a description (and optional colours/fabric) for description-only mode.",
+        },
         { status: 400 },
       );
     }
+
+    if (mode === "sketch" && !sketchOnly.length) {
+      return NextResponse.json(
+        { error: "Upload at least one sketch." },
+        { status: 400 },
+      );
+    }
+
+    if (mode === "old-design" && !body.oldDesignUrl?.trim()) {
+      return NextResponse.json(
+        { error: "Upload an old design photo." },
+        { status: 400 },
+      );
+    }
+
+    const imageUrls =
+      mode === "old-design"
+        ? [body.oldDesignUrl!].filter(Boolean)
+        : mode === "sketch"
+          ? sketchOnly
+          : [];
 
     let settings = DEFAULT_APP_SETTINGS;
     try {
@@ -78,20 +107,24 @@ export async function POST(request: Request) {
       mode,
     });
 
-    // Old-design needs more deviation so we don't get a near-photocopy on pass 1.
-    const strength = mode === "old-design" ? 0.82 : undefined;
-
-    const result = await generateFromSketch(
-      {
-        sketchUrls: imageUrls,
-        prompt: built.prompt,
-        negativePrompt: built.negativePrompt,
-        seed: built.seed,
-        modelKey: settings.fal.generateModel,
-        strength,
-      },
-      settings.fal,
-    );
+    const result =
+      mode === "description"
+        ? await generateFromText({
+            prompt: built.prompt,
+            negativePrompt: built.negativePrompt,
+            seed: built.seed,
+          })
+        : await generateFromSketch(
+            {
+              sketchUrls: imageUrls,
+              prompt: built.prompt,
+              negativePrompt: built.negativePrompt,
+              seed: built.seed,
+              modelKey: settings.fal.generateModel,
+              strength: mode === "old-design" ? 0.82 : undefined,
+            },
+            settings.fal,
+          );
 
     if (!result.ok) {
       return NextResponse.json(

@@ -15,6 +15,10 @@ const SKETCH_ANCHOR =
 const OLD_DESIGN_ANCHOR =
   "Photorealistic fashion photograph that looks like a real camera shot. The attached image is an OLD DESIGN PHOTO for garment inspiration only. Recreate the outfit as a fresh real photograph: keep the garment type, silhouette, and key dress details, but improve fabric realism, colour richness, and fit. CRITICAL: do NOT keep the original person, face, body, hair, skin tone, or identity from the photo — completely replace them with the house model described below.";
 
+/** Text-only — invent garment from the user's description. */
+const DESCRIPTION_ANCHOR =
+  "Photorealistic fashion photograph that looks like a real camera shot. Create the outfit from the user's written description only — no sketch or reference photo. Invent a coherent modest South Asian / Pakistani women's outfit (e.g. kameez, shalwar/palazzo, dupatta if mentioned) that matches the colours, fabric, and style notes. Full-length catalogue look on the house model.";
+
 /** Strip junk that often appears in sourced photos / screenshots. */
 const CLEANUP =
   "Include ONLY the model and the clothing. Completely omit anything irrelevant that is not part of the dress: watermarks, logos, brand marks, arrows, crosses, religious or UI symbols, circles, stickers, text overlays, phone UI, screenshots chrome, collages, and background clutter from the source image.";
@@ -45,7 +49,25 @@ export const DEFAULT_NEGATIVE_PROMPT =
 export const OLD_DESIGN_NEGATIVE_PROMPT =
   `same face as reference photo, original model identity, photocopy of input, identical pose to reference, ${SHARED_NEGATIVES}`;
 
-export type PromptMode = "sketch" | "old-design";
+export type PromptMode = "sketch" | "old-design" | "description";
+
+export const INPUT_SOURCE_TABS = [
+  {
+    id: "sketch" as const,
+    label: "Sketch",
+    hint: "Upload one or more fashion sketches",
+  },
+  {
+    id: "old-design" as const,
+    label: "Old design",
+    hint: "Restyle a photo on the house model",
+  },
+  {
+    id: "description" as const,
+    label: "Description",
+    hint: "Create from words only — no upload",
+  },
+] as const;
 
 /** One-click pose / angle presets for the result screen. */
 export const POSE_PRESETS = [
@@ -161,7 +183,12 @@ function buildGarmentNotes(input: PromptBuilderInput): string {
  * Sketch mode: structure wins. Old-design mode: garment idea + new house model.
  */
 export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
-  const mode: PromptMode = input.mode === "old-design" ? "old-design" : "sketch";
+  const mode: PromptMode =
+    input.mode === "old-design"
+      ? "old-design"
+      : input.mode === "description"
+        ? "description"
+        : "sketch";
   const persona = getModelPersona(input.persona);
   const description = trimOrEmpty(input.description);
   const feedback = trimOrEmpty(input.feedback);
@@ -171,14 +198,17 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
 
   const variableBlock = joinNonEmpty(
     [
-      description && `User direction: ${description}.`,
+      description &&
+        (mode === "description"
+          ? `Garment brief: ${description}.`
+          : `User direction: ${description}.`),
       garmentNotes,
       feedback &&
         (wantsBg
           ? `BACKGROUND CHANGE — apply clearly, replace the entire environment with a real photographic setting: ${feedback}. Keep the same house model and the same dress.`
           : wantsPose
             ? `POSE / ANGLE CHANGE — apply clearly with a new real fashion-photography stance: ${feedback}. Keep the same house model and the same dress; do not return a near-copy of the previous frame.`
-            : mode === "old-design"
+            : mode === "old-design" || mode === "description"
               ? `Apply this change clearly (do not return a near-copy): ${feedback}.`
               : `Refinement: ${feedback}.`),
     ],
@@ -190,15 +220,21 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
       ? `House model (MUST use this person — not anyone from the reference photo): ${persona.description}`
       : `Model: ${persona.description}`;
 
-  // If user asked for a background, don't fight them with the default scene line.
   const sceneLine = wantsBg
     ? "The new background must look like a real photograph, compatible with the dress colour and occasion, with natural depth and lighting."
     : REAL_SCENE;
 
+  const anchor =
+    mode === "old-design"
+      ? OLD_DESIGN_ANCHOR
+      : mode === "description"
+        ? DESCRIPTION_ANCHOR
+        : SKETCH_ANCHOR;
+
   const prompt = joinNonEmpty(
     [
-      mode === "old-design" ? OLD_DESIGN_ANCHOR : SKETCH_ANCHOR,
-      CLEANUP,
+      anchor,
+      ...(mode === "description" ? [] : [CLEANUP]),
       modelLine,
       variableBlock,
       sceneLine,
@@ -220,13 +256,23 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
   };
 }
 
-/** True when the user is restyling a photo without a sketch. */
+/** Resolve mode from client tab or from what was uploaded. */
 export function resolvePromptMode(input: {
   sketchUrls?: string[] | null;
   oldDesignUrl?: string | null;
+  sourceMode?: PromptMode | null;
+  hasDescription?: boolean;
 }): PromptMode {
+  if (
+    input.sourceMode === "sketch" ||
+    input.sourceMode === "old-design" ||
+    input.sourceMode === "description"
+  ) {
+    return input.sourceMode;
+  }
   const hasSketch = Boolean(input.sketchUrls?.some((u) => u?.trim()));
   const hasOld = Boolean(input.oldDesignUrl?.trim());
   if (hasOld && !hasSketch) return "old-design";
+  if (!hasSketch && !hasOld && input.hasDescription) return "description";
   return "sketch";
 }

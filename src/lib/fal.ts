@@ -3,6 +3,7 @@ import { fal } from "@fal-ai/client";
 import { getFalKey } from "@/lib/env";
 import {
   DEFAULT_FAL_RUNTIME,
+  FAL_TEXT_TO_IMAGE,
   getFalModel,
   type FalModelConfig,
   type FalModelKey,
@@ -33,13 +34,17 @@ export type GenerateFromSketchInput = {
   seed?: number;
   modelKey?: FalModelKey;
   aspectRatio?: string;
-  /** Higher = more change from the reference (img2img / edit). */
   strength?: number;
+};
+
+export type GenerateFromTextInput = {
+  prompt: string;
+  negativePrompt?: string;
+  seed?: number;
 };
 
 export type RefineImageInput = {
   baseImageUrl: string;
-  /** Optional extra refs (e.g. original sketch) to keep structure stable. */
   referenceUrls?: string[];
   prompt: string;
   negativePrompt?: string;
@@ -71,7 +76,6 @@ function withNegativePrompt(
     return { prompt, negative_prompt: neg };
   }
 
-  // Models without a negative_prompt field still benefit from explicit avoidances.
   return {
     prompt: `${prompt} Avoid: ${neg}.`,
   };
@@ -93,7 +97,11 @@ async function runModel(params: {
   const model = getFalModel(params.modelKey);
 
   if (!params.imageUrls.length) {
-    return { ok: false, error: "At least one reference image URL is required.", modelId: model.id };
+    return {
+      ok: false,
+      error: "At least one reference image URL is required.",
+      modelId: model.id,
+    };
   }
 
   configureFal();
@@ -118,12 +126,10 @@ async function runModel(params: {
     if (model.imageInput === "image_urls") {
       input.image_urls = params.imageUrls;
       if (params.aspectRatio) input.aspect_ratio = params.aspectRatio;
-      // Some edit endpoints honour strength; safe to send when provided.
       if (params.strength !== undefined) input.strength = params.strength;
     } else {
       input.image_url = params.imageUrls[0];
       if (params.strength !== undefined) input.strength = params.strength;
-      // Keep enough of the reference for identity; lower = closer to source.
       if (input.strength === undefined) input.strength = 0.65;
     }
 
@@ -167,7 +173,6 @@ async function runModel(params: {
   }
 }
 
-/** Image-to-image / edit: sketches as structural references. */
 export async function generateFromSketch(
   input: GenerateFromSketchInput,
   runtime: FalRuntimeConfig = DEFAULT_FAL_RUNTIME,
@@ -183,10 +188,59 @@ export async function generateFromSketch(
   });
 }
 
-/**
- * Refine using the previous result as the primary reference so identity stays stable.
- * Optional sketch refs can be appended to reinforce garment structure.
- */
+/** Text-only generation (no sketch / old design). */
+export async function generateFromText(
+  input: GenerateFromTextInput,
+): Promise<FalResult> {
+  configureFal();
+  const modelId = FAL_TEXT_TO_IMAGE.id;
+  const neg = input.negativePrompt?.trim();
+  const prompt = neg ? `${input.prompt} Avoid: ${neg}.` : input.prompt;
+
+  try {
+    const falInput: Record<string, unknown> = {
+      prompt,
+      num_images: 1,
+      output_format: "png",
+      image_size: "portrait_4_3",
+      enable_safety_checker: true,
+    };
+    if (input.seed !== undefined) falInput.seed = input.seed;
+
+    const result = await fal.subscribe(modelId, {
+      input: falInput,
+      logs: false,
+    });
+
+    const data = result.data as FalImagePayload;
+    const imageUrl = extractImageUrl(data);
+    if (!imageUrl) {
+      return {
+        ok: false,
+        error: "Generation finished but no image URL was returned.",
+        modelId,
+      };
+    }
+
+    return {
+      ok: true,
+      imageUrl,
+      seed: typeof data.seed === "number" ? data.seed : input.seed,
+      costUsd: FAL_TEXT_TO_IMAGE.estimatedCostUsd,
+      modelId,
+      requestId: result.requestId,
+    };
+  } catch (err) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+          ? err
+          : "Unknown fal generation error.";
+    return { ok: false, error: message, modelId };
+  }
+}
+
 export async function refineImage(
   input: RefineImageInput,
   runtime: FalRuntimeConfig = DEFAULT_FAL_RUNTIME,
@@ -203,7 +257,6 @@ export async function refineImage(
   });
 }
 
-/** Upload a local File/Blob/Buffer to fal storage; returns a public URL. */
 export async function uploadToFal(file: Blob): Promise<string> {
   configureFal();
   try {

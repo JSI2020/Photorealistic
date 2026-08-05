@@ -75,17 +75,17 @@ export async function POST(request: Request) {
       mode,
     });
 
-    // Do not re-attach the original old-design photo on refine (locks identity).
+    // Sketch refs only in sketch mode; description/old-design refine from prior result.
     const referenceUrls =
-      mode === "old-design" ? [] : (body.sketchUrls ?? []).slice(0, 2);
+      mode === "sketch" ? (body.sketchUrls ?? []).slice(0, 2) : [];
 
     const bigSceneChange =
       feedbackRequestsBackground(polished.feedback ?? body.feedback) ||
       feedbackRequestsPose(polished.feedback ?? body.feedback);
 
-    let strength = mode === "old-design" ? 0.72 : 0.55;
+    let strength = mode === "sketch" ? 0.55 : 0.72;
     if (bigSceneChange) {
-      strength = mode === "old-design" ? 0.84 : 0.78;
+      strength = mode === "sketch" ? 0.78 : 0.84;
     }
 
     const result = await refineImage(

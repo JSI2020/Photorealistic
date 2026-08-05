@@ -57,6 +57,12 @@ export const DEFAULT_FAL_RUNTIME: FalRuntimeConfig = {
   refineModel: "nano-banana-edit",
 };
 
+export const FAL_TEXT_TO_IMAGE = {
+  id: "fal-ai/flux/dev",
+  label: "FLUX.1 [dev] Text-to-Image",
+  estimatedCostUsd: 0.025,
+} as const;
+
 export function getFalModel(key: FalModelKey): FalModelConfig {
   return FAL_MODEL_OPTIONS[key];
 }

@@ -90,6 +90,7 @@ export function StudioApp() {
 
   const handleGenerate = useCallback(
     async (payload: {
+      sourceMode: PromptMode;
       sketchUrls: string[];
       oldDesignUrl?: string;
       description: string;
@@ -125,6 +126,7 @@ export function StudioApp() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            sourceMode: payload.sourceMode,
             sketchUrls: payload.sketchUrls,
             oldDesignUrl: payload.oldDesignUrl,
             description: payload.description,
@@ -158,7 +160,7 @@ export function StudioApp() {
           oldDesignUrl: payload.oldDesignUrl,
           houseModelId: data.houseModel?.id ?? "ayesha",
           houseModelName: data.houseModel?.name ?? "Ayesha",
-          promptMode: data.promptMode ?? "sketch",
+          promptMode: data.promptMode ?? payload.sourceMode,
         });
         setVersions([data.version]);
         setActiveVersionId(data.version.id);
