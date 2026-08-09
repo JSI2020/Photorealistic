@@ -46,8 +46,20 @@ const EXPRESSION =
 const STYLE =
   "High-end modest commercial fashion photography for a real brand lookbook/campaign, photorealistic, shot on a real camera, not illustrated, not CGI, not a stiff ecommerce ghost mannequin.";
 
+/**
+ * Refine / pose-change: edit the previous photo — do not reinvent dress or face.
+ */
+const REFINE_LOCK_ANCHOR =
+  "Edit the attached PREVIOUS RESULT photograph only. CRITICAL LOCKS: (1) Keep the EXACT same woman — same face, hair, skin tone, age, and identity; do not swap to a different model. (2) Keep the EXACT same dress — same colours, embroidery, silhouette, neckline, sleeves, hem, fabric look; do not redesign or recolour the outfit. (3) Keep the same background mood unless a background change is explicitly requested. Apply ONLY the requested change below.";
+
+const POSE_ONLY_LOCK =
+  "POSE-ONLY CHANGE: change body stance and/or camera angle only. Do NOT change dress colour, embroidery, print, fabric, cut, accessories, or the model's face/hair/identity. The outfit and woman must look like the same photograph restaged.";
+
 const SHARED_NEGATIVES =
   "watermark, text overlay, logo, arrow, cross symbol, UI icons, screenshot chrome, collage, flat seamless paper backdrop, blank stare, deadpan face, emotionless expression, vacant eyes, mannequin face, stiff military stand, identical pose every time, uncanny valley, deformed hands, extra limbs, illustrated, cartoon, CGI, plastic skin";
+
+const POSE_CHANGE_NEGATIVES =
+  `different dress colour, recoloured garment, new embroidery design, redesigned outfit, different model face, new identity, different hair colour or hairstyle, swapped model, ${SHARED_NEGATIVES}`;
 
 export const DEFAULT_NEGATIVE_PROMPT =
   `no altered neckline or hem, no distorted embroidery, no oversaturation, no extra garments, ${SHARED_NEGATIVES}`;
@@ -81,43 +93,43 @@ export const POSE_PRESETS = [
     id: "front",
     label: "Front view",
     feedback:
-      "Change to a relaxed front-facing commercial fashion photo. Soft knee bend, natural arms, same house model and same dress — not a stiff mannequin stand.",
+      "Pose only: restage to a relaxed front-facing commercial stance (soft knee bend, natural arms). Keep the exact same dress colours/design and the exact same model face.",
   },
   {
     id: "three-quarter",
     label: "3/4 angle",
     feedback:
-      "Change to a classic three-quarter commercial pose with weight shift, looking toward camera, same house model and same dress.",
+      "Pose only: restage to a three-quarter turn with weight shift, looking toward camera. Keep the exact same dress colours/design and the exact same model face.",
   },
   {
     id: "side",
     label: "Side profile",
     feedback:
-      "Change to a side-profile fashion photo so silhouette and drape read clearly, same house model and same dress.",
+      "Pose only: restage to a side-profile angle so silhouette reads clearly. Keep the exact same dress colours/design and the exact same model face.",
   },
   {
     id: "over-shoulder",
     label: "Over shoulder",
     feedback:
-      "Change pose: look back over one shoulder toward the camera, elegant editorial turn, same house model and same dress.",
+      "Pose only: restage looking back over one shoulder toward the camera. Keep the exact same dress colours/design and the exact same model face.",
   },
   {
     id: "walk",
     label: "Walking",
     feedback:
-      "Change pose to a natural walking stride toward the camera, mid-step, real commercial campaign energy, same house model and same dress.",
+      "Pose only: restage to a natural walking stride mid-step toward the camera. Keep the exact same dress colours/design and the exact same model face.",
   },
   {
     id: "seated",
     label: "Sitting",
     feedback:
-      "Change pose to seated on a ledge, step, or chair — modest commercial lookbook seating with the full outfit readable, same house model and same dress.",
+      "Pose only: restage seated on a ledge, step, or chair with the outfit still fully readable. Keep the exact same dress colours/design and the exact same model face.",
   },
   {
     id: "lean",
     label: "Lean",
     feedback:
-      "Change pose to casually leaning against a wall or pillar, weight on one leg, relaxed commercial stance, same house model and same dress.",
+      "Pose only: restage casually leaning against a wall or pillar. Keep the exact same dress colours/design and the exact same model face.",
   },
 ] as const;
 
@@ -131,14 +143,13 @@ export type PromptBuilderInput = {
   feedback?: string;
   persona?: Partial<ModelPersona>;
   mode?: PromptMode;
-  /**
-   * Generate: pass a chosen commercial pose (or omit to auto-pick).
-   * Refine: omit + set keepPose to lock the previous stance.
-   */
   pose?: CommercialPose | null;
   poseId?: string | null;
-  /** On refine, keep previous pose unless feedback asks for a pose change. */
   keepPose?: boolean;
+  /** True when editing a previous result (refine / pose buttons). */
+  isRefine?: boolean;
+  /** True when only pose/angle should change. */
+  poseOnly?: boolean;
 };
 
 export type BuiltPrompt = {
@@ -208,7 +219,8 @@ function buildGarmentNotes(input: PromptBuilderInput): string {
 
 /**
  * Assembles the fal prompt.
- * Sketch mode: structure wins. Old-design mode: garment idea + new house model.
+ * Generate uses sketch/old-design/description anchors.
+ * Refine / pose-only uses a lock anchor so dress + face stay the same.
  */
 export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
   const mode: PromptMode =
@@ -222,7 +234,9 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
   const feedback = trimOrEmpty(input.feedback);
   const garmentNotes = buildGarmentNotes(input);
   const wantsBg = feedbackRequestsBackground(feedback);
-  const wantsPose = feedbackRequestsPose(feedback);
+  const wantsPose =
+    Boolean(input.poseOnly) || feedbackRequestsPose(feedback);
+  const isRefine = Boolean(input.isRefine) || wantsPose || Boolean(input.keepPose);
 
   let pose: CommercialPose | undefined =
     input.pose ?? getCommercialPoseById(input.poseId) ?? undefined;
@@ -231,37 +245,52 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
   if (wantsPose) {
     keepPose = false;
     pose = undefined;
-  } else if (!pose && !keepPose) {
+  } else if (!isRefine && !pose && !keepPose) {
     pose = pickRandomCommercialPose();
   }
 
   const variableBlock = joinNonEmpty(
     [
-      description &&
-        (mode === "description"
+      !input.poseOnly &&
+        description &&
+        (mode === "description" && !isRefine
           ? `Garment brief: ${description}.`
-          : `User direction: ${description}.`),
-      garmentNotes,
+          : isRefine
+            ? `Keep garment intent unchanged: ${description}.`
+            : `User direction: ${description}.`),
+      !input.poseOnly &&
+        garmentNotes &&
+        (isRefine
+          ? `Locked colours/fabric (do not change): ${garmentNotes}`
+          : garmentNotes),
       feedback &&
-        (wantsBg
-          ? `BACKGROUND CHANGE — apply clearly, replace the entire environment with a real photographic setting: ${feedback}. Keep the same house model and the same dress.`
-          : wantsPose
-            ? `POSE / ANGLE CHANGE — apply clearly with a new real commercial fashion-photography stance: ${feedback}. Keep the same house model and the same dress; do not return a near-copy of the previous frame.`
-            : mode === "old-design" || mode === "description"
-              ? `Apply this change clearly (do not return a near-copy): ${feedback}.`
-              : `Refinement: ${feedback}.`),
+        (input.poseOnly || (wantsPose && !wantsBg)
+          ? `${POSE_ONLY_LOCK} Requested pose: ${feedback}`
+          : wantsBg
+            ? `BACKGROUND CHANGE — replace the environment only: ${feedback}. Keep the exact same dress and the exact same model face.`
+            : isRefine
+              ? `Requested change (preserve dress + model identity): ${feedback}.`
+              : mode === "old-design" || mode === "description"
+                ? `Apply this change clearly (do not return a near-copy): ${feedback}.`
+                : `Refinement: ${feedback}.`),
     ],
     " ",
   );
 
-  const modelLine =
-    mode === "old-design"
+  const modelLine = isRefine
+    ? `LOCKED model identity (must match the previous photo's woman): ${persona.description}`
+    : mode === "old-design"
       ? `House model (MUST use this exact distinct person — not anyone from the reference photo, and not a generic similar face): ${persona.description}`
       : `House model (keep this exact distinct identity — do not genericise into a lookalike): ${persona.description}`;
 
-  const sceneLine = wantsBg
-    ? "The new background must look like a real photograph, compatible with the dress colour and occasion, with natural depth and lighting."
-    : REAL_SCENE;
+  const sceneLine =
+    input.poseOnly || (wantsPose && !wantsBg)
+      ? "Keep the same background environment as the previous photograph; only restage the model's pose."
+      : wantsBg
+        ? "The new background must look like a real photograph, compatible with the dress colour and occasion, with natural depth and lighting."
+        : isRefine
+          ? "Keep the same background setting as the previous photograph unless a background change was requested."
+          : REAL_SCENE;
 
   const poseLine = wantsPose
     ? null
@@ -269,8 +298,9 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
       ? KEEP_POSE_LINE
       : pose?.prompt ?? null;
 
-  const anchor =
-    mode === "old-design"
+  const anchor = isRefine
+    ? REFINE_LOCK_ANCHOR
+    : mode === "old-design"
       ? OLD_DESIGN_ANCHOR
       : mode === "description"
         ? DESCRIPTION_ANCHOR
@@ -279,7 +309,7 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
   const prompt = joinNonEmpty(
     [
       anchor,
-      ...(mode === "description" ? [] : [CLEANUP]),
+      ...(isRefine || mode === "description" ? [] : [CLEANUP]),
       modelLine,
       variableBlock,
       sceneLine,
@@ -294,9 +324,11 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
   return {
     prompt,
     negativePrompt:
-      mode === "old-design"
-        ? OLD_DESIGN_NEGATIVE_PROMPT
-        : DEFAULT_NEGATIVE_PROMPT,
+      input.poseOnly || (wantsPose && !wantsBg)
+        ? POSE_CHANGE_NEGATIVES
+        : mode === "old-design"
+          ? OLD_DESIGN_NEGATIVE_PROMPT
+          : DEFAULT_NEGATIVE_PROMPT,
     seed: resolvePersonaSeed(persona),
     mode,
     poseId: pose?.id,

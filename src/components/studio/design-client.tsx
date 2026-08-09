@@ -59,6 +59,7 @@ export function DesignClient({ designId }: { designId: string }) {
     shirtColour?: string;
     trouserColour?: string;
     fabric?: string;
+    poseOnly?: boolean;
   } | null>(null);
 
   const load = useCallback(async () => {
@@ -111,12 +112,13 @@ export function DesignClient({ designId }: { designId: string }) {
     shirtColour?: string;
     trouserColour?: string;
     fabric?: string;
+    poseOnly?: boolean;
   }) => {
     const active = versions.find((v) => v.id === activeVersionId);
     if (!active) return;
     setLastRefinePayload(payload);
     setBusy(true);
-    setBusyLabel("Refining…");
+    setBusyLabel(payload.poseOnly ? "Changing pose…" : "Refining…");
     setError(null);
     try {
       const settingsRes = await fetch("/api/settings");
@@ -146,6 +148,7 @@ export function DesignClient({ designId }: { designId: string }) {
           feedback: payload.feedback,
           previousTotalCost: totalCost,
           houseModelId: meta.houseModelId,
+          poseOnly: Boolean(payload.poseOnly),
         }),
       });
       const data = (await res.json()) as {

@@ -33,9 +33,10 @@ export async function POST(request: Request) {
       fabric?: string;
       feedback?: string;
       previousTotalCost?: number;
-      /** Locked house model for this design (do not randomize on refine). */
       houseModelId?: string;
       promptMode?: PromptMode;
+      /** Pose buttons: change stance only — lock dress + face. */
+      poseOnly?: boolean;
     };
 
     if (!body.baseImageUrl) {
@@ -54,15 +55,33 @@ export async function POST(request: Request) {
       DEFAULT_HOUSE_MODEL;
     const persona = houseModelToPersona(houseModel);
 
-    const polished = await polishUserPrompt({
-      description: body.description,
-      shirtColour: body.shirtColour,
-      trouserColour: body.trouserColour,
-      fabric: body.fabric,
-      feedback: body.feedback,
-      mode: "refine",
-      inputMode: mode,
-    });
+    const poseOnly =
+      Boolean(body.poseOnly) ||
+      (feedbackRequestsPose(body.feedback) &&
+        !feedbackRequestsBackground(body.feedback) &&
+        !body.shirtColour?.trim() &&
+        !body.trouserColour?.trim() &&
+        !body.fabric?.trim());
+
+    // Pose-only: skip DeepSeek so it cannot "improve" colours into a redesign.
+    const polished = poseOnly
+      ? {
+          description: body.description?.trim() || undefined,
+          shirtColour: body.shirtColour?.trim() || undefined,
+          trouserColour: body.trouserColour?.trim() || undefined,
+          fabric: body.fabric?.trim() || undefined,
+          feedback: body.feedback?.trim() || undefined,
+          polished: false,
+        }
+      : await polishUserPrompt({
+          description: body.description,
+          shirtColour: body.shirtColour,
+          trouserColour: body.trouserColour,
+          fabric: body.fabric,
+          feedback: body.feedback,
+          mode: "refine",
+          inputMode: mode,
+        });
 
     const settings = await getAppSettings();
     const built = buildPrompt({
@@ -73,22 +92,24 @@ export async function POST(request: Request) {
       feedback: polished.feedback,
       persona,
       mode,
-      // Lock stance across refine unless the user asks for a new pose.
-      keepPose: true,
+      isRefine: true,
+      poseOnly,
+      keepPose: !poseOnly && !feedbackRequestsPose(polished.feedback),
     });
 
-    // Sketch refs only in sketch mode; description/old-design refine from prior result.
+    // Always edit from the previous result. Sketch refs only when not pose-only
+    // (extra refs can fight identity lock on pose restage).
     const referenceUrls =
-      mode === "sketch" ? (body.sketchUrls ?? []).slice(0, 2) : [];
+      !poseOnly && mode === "sketch"
+        ? (body.sketchUrls ?? []).slice(0, 2)
+        : [];
 
-    const bigSceneChange =
-      feedbackRequestsBackground(polished.feedback ?? body.feedback) ||
-      feedbackRequestsPose(polished.feedback ?? body.feedback);
+    const wantsBg = feedbackRequestsBackground(polished.feedback ?? body.feedback);
 
-    let strength = mode === "sketch" ? 0.55 : 0.72;
-    if (bigSceneChange) {
-      strength = mode === "sketch" ? 0.78 : 0.84;
-    }
+    // Pose-only needs moderate strength: enough to restage, low enough to keep colours/face.
+    let strength = mode === "sketch" ? 0.5 : 0.58;
+    if (poseOnly) strength = 0.42;
+    else if (wantsBg) strength = mode === "sketch" ? 0.72 : 0.78;
 
     const result = await refineImage(
       {
@@ -133,6 +154,7 @@ export async function POST(request: Request) {
       usdPkrRate: rate,
       modelId: result.modelId,
       promptMode: mode,
+      poseOnly,
       houseModel: {
         id: houseModel.id,
         name: houseModel.name,
@@ -141,9 +163,7 @@ export async function POST(request: Request) {
       },
       promptPolish: {
         polished: polished.polished,
-        model: polished.model,
         feedback: polished.feedback,
-        warning: polished.error,
       },
     });
   } catch (err) {

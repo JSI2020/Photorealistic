@@ -52,6 +52,7 @@ type ResultScreenProps = {
     shirtColour?: string;
     trouserColour?: string;
     fabric?: string;
+    poseOnly?: boolean;
   }) => Promise<void>;
   onSave: () => Promise<void>;
   onStartOver: () => void;
@@ -233,8 +234,7 @@ export function ResultScreen({
         <div className="space-y-2">
           <Label>Pose / angle</Label>
           <p className="text-xs text-muted-foreground">
-            Runs a refine with a new real fashion-photography stance (same dress +
-            house model).
+            Changes pose only — dress colour/design and model face stay locked.
           </p>
           <div className="flex flex-wrap gap-2">
             {POSE_PRESETS.map((pose) => (
@@ -244,7 +244,9 @@ export function ResultScreen({
                 size="sm"
                 variant="outline"
                 disabled={busy}
-                onClick={() => void onRefine({ feedback: pose.feedback })}
+                onClick={() =>
+                  void onRefine({ feedback: pose.feedback, poseOnly: true })
+                }
               >
                 {pose.label}
               </Button>

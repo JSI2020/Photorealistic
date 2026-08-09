@@ -62,6 +62,7 @@ export function StudioApp() {
     shirtColour?: string;
     trouserColour?: string;
     fabric?: string;
+    poseOnly?: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -185,12 +186,13 @@ export function StudioApp() {
       shirtColour?: string;
       trouserColour?: string;
       fabric?: string;
+      poseOnly?: boolean;
     }) => {
       const active = versions.find((v) => v.id === activeVersionId);
       if (!active || !draft) return;
       setLastRefinePayload(payload);
       setBusy(true);
-      setBusyLabel("Refining…");
+      setBusyLabel(payload.poseOnly ? "Changing pose…" : "Refining…");
       setError(null);
       try {
         try {
@@ -227,6 +229,7 @@ export function StudioApp() {
             previousTotalCost: totalCost,
             houseModelId: draft.houseModelId,
             promptMode: draft.promptMode,
+            poseOnly: Boolean(payload.poseOnly),
           }),
         });
         const parsed = await readJsonSafe<{
