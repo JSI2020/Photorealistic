@@ -73,6 +73,8 @@ export async function POST(request: Request) {
       feedback: polished.feedback,
       persona,
       mode,
+      // Lock stance across refine unless the user asks for a new pose.
+      keepPose: true,
     });
 
     // Sketch refs only in sketch mode; description/old-design refine from prior result.

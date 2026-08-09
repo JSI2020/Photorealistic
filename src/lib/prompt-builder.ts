@@ -3,6 +3,12 @@ import {
   resolvePersonaSeed,
   type ModelPersona,
 } from "@/lib/model-persona";
+import {
+  KEEP_POSE_LINE,
+  getCommercialPoseById,
+  pickRandomCommercialPose,
+  type CommercialPose,
+} from "@/lib/commercial-poses";
 
 /** Sketch mode — structure from line art; do not redesign the cut. */
 const SKETCH_ANCHOR =
@@ -17,7 +23,7 @@ const OLD_DESIGN_ANCHOR =
 
 /** Text-only — invent garment from the user's description. */
 const DESCRIPTION_ANCHOR =
-  "Photorealistic fashion photograph that looks like a real camera shot. Create the outfit from the user's written description only — no sketch or reference photo. Invent a coherent modest South Asian / Pakistani women's outfit (e.g. kameez, shalwar/palazzo, dupatta if mentioned) that matches the colours, fabric, and style notes. Full-length catalogue look on the house model.";
+  "Photorealistic fashion photograph that looks like a real commercial campaign shot. Create the outfit from the user's written description only — no sketch or reference photo. Invent a coherent modest South Asian / Pakistani women's outfit (e.g. kameez, shalwar/palazzo, dupatta if mentioned) that matches the colours, fabric, and style notes. Show it on the house model in a varied commercial pose (not always standing front-on).";
 
 /** Strip junk that often appears in sourced photos / screenshots. */
 const CLEANUP =
@@ -31,17 +37,17 @@ const REAL_SCENE =
   "Place the model in a believable real-world photography setting that complements the dress colour, fabric, and occasion (for example soft outdoor daylight courtyard, marble foyer, boutique interior, garden path, or warm evening terrace). Natural depth, real surfaces, and realistic lighting — not a flat seamless paper backdrop, not CGI, not illustration.";
 
 const CAMERA =
-  "Full-length or three-quarter fashion photography, 85mm lens look, sharp focus on the garment, true-to-life fabric texture and drape, modest poised styling.";
+  "Shot like a real commercial fashion campaign: 50–85mm lens look, natural depth of field, sharp focus on the garment, true-to-life fabric texture and drape, modest tasteful styling. Framing may be full-length or three-quarter depending on the pose — never a stiff mannequin stand unless that pose is requested.";
 
 /** Avoid blank “AI mannequin” faces — subtle real expression. */
 const EXPRESSION =
   "Facial expression must feel real and human: a soft genuine closed-mouth smile or gentle half-smile, slight warmth and life in the eyes, natural micro-expression as in real fashion photography. Not blank, vacant, deadpan, emotionless, frozen, or mannequin-like. Keep it modest and tasteful — no exaggerated grin.";
 
 const STYLE =
-  "High-end modest fashion editorial photography, photorealistic, shot on a real camera, not illustrated or stylised.";
+  "High-end modest commercial fashion photography for a real brand lookbook/campaign, photorealistic, shot on a real camera, not illustrated, not CGI, not a stiff ecommerce ghost mannequin.";
 
 const SHARED_NEGATIVES =
-  "watermark, text overlay, logo, arrow, cross symbol, UI icons, screenshot chrome, collage, flat seamless paper backdrop, blank stare, deadpan face, emotionless expression, vacant eyes, mannequin face, uncanny valley, deformed hands, extra limbs, illustrated, cartoon, CGI, plastic skin";
+  "watermark, text overlay, logo, arrow, cross symbol, UI icons, screenshot chrome, collage, flat seamless paper backdrop, blank stare, deadpan face, emotionless expression, vacant eyes, mannequin face, stiff military stand, identical pose every time, uncanny valley, deformed hands, extra limbs, illustrated, cartoon, CGI, plastic skin";
 
 export const DEFAULT_NEGATIVE_PROMPT =
   `no altered neckline or hem, no distorted embroidery, no oversaturation, no extra garments, ${SHARED_NEGATIVES}`;
@@ -75,31 +81,43 @@ export const POSE_PRESETS = [
     id: "front",
     label: "Front view",
     feedback:
-      "Change camera angle to a clear front-facing full-length fashion photo. Model stands facing the camera, natural catalogue pose, same house model and same dress, real photography look.",
+      "Change to a relaxed front-facing commercial fashion photo. Soft knee bend, natural arms, same house model and same dress — not a stiff mannequin stand.",
   },
   {
     id: "three-quarter",
     label: "3/4 angle",
     feedback:
-      "Change camera angle to a classic three-quarter fashion pose. Model turned about 45 degrees, looking toward camera, same house model and same dress, real photography look.",
+      "Change to a classic three-quarter commercial pose with weight shift, looking toward camera, same house model and same dress.",
   },
   {
     id: "side",
     label: "Side profile",
     feedback:
-      "Change camera angle to a side-profile fashion photo. Model shown from the side so silhouette and drape read clearly, same house model and same dress, real photography look.",
+      "Change to a side-profile fashion photo so silhouette and drape read clearly, same house model and same dress.",
   },
   {
     id: "over-shoulder",
     label: "Over shoulder",
     feedback:
-      "Change pose: model looks back over one shoulder toward the camera, elegant modest fashion editorial stance, same house model and same dress, real photography look.",
+      "Change pose: look back over one shoulder toward the camera, elegant editorial turn, same house model and same dress.",
   },
   {
     id: "walk",
     label: "Walking",
     feedback:
-      "Change pose to a natural walking stride toward the camera, mid-step, like a real runway or street fashion photograph, same house model and same dress.",
+      "Change pose to a natural walking stride toward the camera, mid-step, real commercial campaign energy, same house model and same dress.",
+  },
+  {
+    id: "seated",
+    label: "Sitting",
+    feedback:
+      "Change pose to seated on a ledge, step, or chair — modest commercial lookbook seating with the full outfit readable, same house model and same dress.",
+  },
+  {
+    id: "lean",
+    label: "Lean",
+    feedback:
+      "Change pose to casually leaning against a wall or pillar, weight on one leg, relaxed commercial stance, same house model and same dress.",
   },
 ] as const;
 
@@ -113,6 +131,14 @@ export type PromptBuilderInput = {
   feedback?: string;
   persona?: Partial<ModelPersona>;
   mode?: PromptMode;
+  /**
+   * Generate: pass a chosen commercial pose (or omit to auto-pick).
+   * Refine: omit + set keepPose to lock the previous stance.
+   */
+  pose?: CommercialPose | null;
+  poseId?: string | null;
+  /** On refine, keep previous pose unless feedback asks for a pose change. */
+  keepPose?: boolean;
 };
 
 export type BuiltPrompt = {
@@ -120,6 +146,8 @@ export type BuiltPrompt = {
   negativePrompt: string;
   seed: number | undefined;
   mode: PromptMode;
+  poseId?: string;
+  poseLabel?: string;
 };
 
 function trimOrEmpty(value?: string): string {
@@ -137,7 +165,7 @@ export function feedbackRequestsBackground(feedback?: string): boolean {
 }
 
 export function feedbackRequestsPose(feedback?: string): boolean {
-  return /\b(pose|angle|side|profile|front|three[- ]?quarter|walking|over[- ]?shoulder|turn|facing|camera)\b/i.test(
+  return /\b(pose|angle|side|profile|front|three[- ]?quarter|walking|walk|over[- ]?shoulder|turn|facing|camera|sit|sitting|seated|lean|leaning|crouch|kneel|stairs|step)\b/i.test(
     feedback ?? "",
   );
 }
@@ -196,6 +224,17 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
   const wantsBg = feedbackRequestsBackground(feedback);
   const wantsPose = feedbackRequestsPose(feedback);
 
+  let pose: CommercialPose | undefined =
+    input.pose ?? getCommercialPoseById(input.poseId) ?? undefined;
+  let keepPose = Boolean(input.keepPose);
+
+  if (wantsPose) {
+    keepPose = false;
+    pose = undefined;
+  } else if (!pose && !keepPose) {
+    pose = pickRandomCommercialPose();
+  }
+
   const variableBlock = joinNonEmpty(
     [
       description &&
@@ -207,7 +246,7 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
         (wantsBg
           ? `BACKGROUND CHANGE — apply clearly, replace the entire environment with a real photographic setting: ${feedback}. Keep the same house model and the same dress.`
           : wantsPose
-            ? `POSE / ANGLE CHANGE — apply clearly with a new real fashion-photography stance: ${feedback}. Keep the same house model and the same dress; do not return a near-copy of the previous frame.`
+            ? `POSE / ANGLE CHANGE — apply clearly with a new real commercial fashion-photography stance: ${feedback}. Keep the same house model and the same dress; do not return a near-copy of the previous frame.`
             : mode === "old-design" || mode === "description"
               ? `Apply this change clearly (do not return a near-copy): ${feedback}.`
               : `Refinement: ${feedback}.`),
@@ -217,12 +256,18 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
 
   const modelLine =
     mode === "old-design"
-      ? `House model (MUST use this person — not anyone from the reference photo): ${persona.description}`
-      : `Model: ${persona.description}`;
+      ? `House model (MUST use this exact distinct person — not anyone from the reference photo, and not a generic similar face): ${persona.description}`
+      : `House model (keep this exact distinct identity — do not genericise into a lookalike): ${persona.description}`;
 
   const sceneLine = wantsBg
     ? "The new background must look like a real photograph, compatible with the dress colour and occasion, with natural depth and lighting."
     : REAL_SCENE;
+
+  const poseLine = wantsPose
+    ? null
+    : keepPose
+      ? KEEP_POSE_LINE
+      : pose?.prompt ?? null;
 
   const anchor =
     mode === "old-design"
@@ -238,6 +283,7 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
       modelLine,
       variableBlock,
       sceneLine,
+      ...(poseLine ? [poseLine] : []),
       EXPRESSION,
       CAMERA,
       STYLE,
@@ -253,6 +299,8 @@ export function buildPrompt(input: PromptBuilderInput = {}): BuiltPrompt {
         : DEFAULT_NEGATIVE_PROMPT,
     seed: resolvePersonaSeed(persona),
     mode,
+    poseId: pose?.id,
+    poseLabel: pose?.label,
   };
 }
 

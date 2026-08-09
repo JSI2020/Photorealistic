@@ -157,6 +157,9 @@ export async function POST(request: Request) {
       usdPkrRate: rate,
       modelId: result.modelId,
       promptMode: mode,
+      pose: built.poseId
+        ? { id: built.poseId, label: built.poseLabel }
+        : undefined,
       houseModel: {
         id: houseModel.id,
         name: houseModel.name,
