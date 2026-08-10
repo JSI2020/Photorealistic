@@ -87,49 +87,67 @@ export const INPUT_SOURCE_TABS = [
   },
 ] as const;
 
-/** One-click pose / angle presets for the result screen. */
+/** One-click pose presets — Vanya-style ethnic-wear lookbook angles. */
 export const POSE_PRESETS = [
   {
     id: "front",
-    label: "Front view",
+    label: "Catalogue front",
     feedback:
-      "Pose only: restage to a relaxed front-facing commercial stance (soft knee bend, natural arms). Keep the exact same dress colours/design and the exact same model face.",
+      "Pose only: restage to a classic full-length catalogue front — facing camera, arms relaxed at sides, calm lookbook stance so the garment reads clearly. Keep the exact same dress colours/design and the exact same model face.",
+  },
+  {
+    id: "soft-stand",
+    label: "Soft stand",
+    feedback:
+      "Pose only: restage to a soft asymmetrical stand — weight on one leg, one foot slightly forward, hands soft at sides. Keep the exact same dress colours/design and the exact same model face.",
+  },
+  {
+    id: "hands-clasped",
+    label: "Hands clasped",
+    feedback:
+      "Pose only: restage standing with hands lightly clasped near the waist, upright and serene. Keep the exact same dress colours/design and the exact same model face.",
   },
   {
     id: "three-quarter",
-    label: "3/4 angle",
+    label: "3/4 lookbook",
     feedback:
-      "Pose only: restage to a three-quarter turn with weight shift, looking toward camera. Keep the exact same dress colours/design and the exact same model face.",
+      "Pose only: restage to a three-quarter lookbook turn with weight shift, face toward camera. Keep the exact same dress colours/design and the exact same model face.",
   },
   {
     id: "side",
-    label: "Side profile",
+    label: "Side silhouette",
     feedback:
-      "Pose only: restage to a side-profile angle so silhouette reads clearly. Keep the exact same dress colours/design and the exact same model face.",
+      "Pose only: restage to a clear side silhouette so sleeve length and drape read cleanly. Keep the exact same dress colours/design and the exact same model face.",
   },
   {
     id: "over-shoulder",
     label: "Over shoulder",
     feedback:
-      "Pose only: restage looking back over one shoulder toward the camera. Keep the exact same dress colours/design and the exact same model face.",
+      "Pose only: restage body angled away showing the back/dupatta, looking back over one shoulder. Keep the exact same dress colours/design and the exact same model face.",
   },
   {
     id: "walk",
-    label: "Walking",
+    label: "Gentle walk",
     feedback:
-      "Pose only: restage to a natural walking stride mid-step toward the camera. Keep the exact same dress colours/design and the exact same model face.",
+      "Pose only: restage to a soft mid-stride walk with light fabric motion — not aggressive runway. Keep the exact same dress colours/design and the exact same model face.",
   },
   {
     id: "seated",
-    label: "Sitting",
+    label: "Seated lookbook",
     feedback:
-      "Pose only: restage seated on a ledge, step, or chair with the outfit still fully readable. Keep the exact same dress colours/design and the exact same model face.",
+      "Pose only: restage seated elegantly on a low block, ledge, or table edge with the outfit still fully readable. Keep the exact same dress colours/design and the exact same model face.",
   },
   {
     id: "lean",
-    label: "Lean",
+    label: "Prop lean",
     feedback:
-      "Pose only: restage casually leaning against a wall or pillar. Keep the exact same dress colours/design and the exact same model face.",
+      "Pose only: restage casually leaning against a table, counter, or pillar — lifestyle campaign lean. Keep the exact same dress colours/design and the exact same model face.",
+  },
+  {
+    id: "look-away",
+    label: "Look away",
+    feedback:
+      "Pose only: restage three-quarter with gaze gently looking away from the camera, serene editorial mood. Keep the exact same dress colours/design and the exact same model face.",
   },
 ] as const;
 
@@ -165,8 +183,13 @@ function trimOrEmpty(value?: string): string {
   return value?.trim() ?? "";
 }
 
-function joinNonEmpty(parts: string[], separator = " "): string {
-  return parts.map((p) => p.trim()).filter(Boolean).join(separator);
+function joinNonEmpty(
+  parts: Array<string | false | null | undefined>,
+  separator = " ",
+): string {
+  return parts
+    .flatMap((p) => (typeof p === "string" && p.trim() ? [p.trim()] : []))
+    .join(separator);
 }
 
 export function feedbackRequestsBackground(feedback?: string): boolean {
@@ -176,7 +199,7 @@ export function feedbackRequestsBackground(feedback?: string): boolean {
 }
 
 export function feedbackRequestsPose(feedback?: string): boolean {
-  return /\b(pose|angle|side|profile|front|three[- ]?quarter|walking|walk|over[- ]?shoulder|turn|facing|camera|sit|sitting|seated|lean|leaning|crouch|kneel|stairs|step)\b/i.test(
+  return /\b(pose|angle|side|profile|front|catalogue|three[- ]?quarter|walking|walk|over[- ]?shoulder|turn|facing|camera|sit|sitting|seated|lean|leaning|clasped|look[- ]?away|silhouette|crouch|kneel|stairs|step)\b/i.test(
     feedback ?? "",
   );
 }
