@@ -12,7 +12,8 @@ export async function middleware(request: NextRequest) {
   if (
     pathname === "/unlock" ||
     pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/api/health")
+    pathname.startsWith("/api/health") ||
+    pathname.startsWith("/api/media/")
   ) {
     return NextResponse.next();
   }

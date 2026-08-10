@@ -9,6 +9,7 @@ import {
   type FalModelKey,
   type FalRuntimeConfig,
 } from "@/lib/fal-config";
+import { ensureFalFetchableUrl } from "@/lib/media-store";
 
 export type FalSuccess = {
   ok: true;
@@ -105,6 +106,27 @@ function isTransientError(message: string): boolean {
   );
 }
 
+function formatFalError(err: unknown): string {
+  if (err instanceof Error) {
+    const anyErr = err as Error & {
+      status?: number;
+      body?: unknown;
+      message?: string;
+    };
+    const body = anyErr.body;
+    if (body && typeof body === "object") {
+      try {
+        return `${anyErr.message}: ${JSON.stringify(body).slice(0, 400)}`;
+      } catch {
+        /* fall through */
+      }
+    }
+    return anyErr.message;
+  }
+  if (typeof err === "string") return err;
+  return "Unknown fal error";
+}
+
 /**
  * Submit to fal queue and poll until complete. Retries transient failures.
  */
@@ -153,12 +175,7 @@ async function runQueuedModel(params: {
 
       throw new Error("fal job timed out after 4 minutes");
     } catch (err) {
-      lastError =
-        err instanceof Error
-          ? err.message
-          : typeof err === "string"
-            ? err
-            : "Unknown fal error";
+      lastError = formatFalError(err);
       if (attempt < maxAttempts && isTransientError(lastError)) {
         await sleep(500 * attempt * attempt);
         continue;
@@ -168,6 +185,14 @@ async function runQueuedModel(params: {
   }
 
   throw new Error(lastError);
+}
+
+async function resolveImageUrlsForFal(urls: string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const url of urls) {
+    out.push(await ensureFalFetchableUrl(url, uploadToFal));
+  }
+  return out;
 }
 
 async function runModel(params: {
@@ -197,6 +222,8 @@ async function runModel(params: {
   );
 
   try {
+    const imageUrls = await resolveImageUrlsForFal(params.imageUrls);
+
     const input: Record<string, unknown> = {
       ...promptFields,
       num_images: Math.min(Math.max(params.numImages ?? 1, 1), 4),
@@ -208,13 +235,18 @@ async function runModel(params: {
     }
 
     if (model.imageInput === "image_urls") {
-      input.image_urls = params.imageUrls;
+      input.image_urls = imageUrls;
       if (params.aspectRatio) input.aspect_ratio = params.aspectRatio;
-      if (params.strength !== undefined) input.strength = params.strength;
+      // Nano Banana rejects unknown `strength` with 422 Unprocessable Entity
+      if (model.supportsStrength && params.strength !== undefined) {
+        input.strength = params.strength;
+      }
     } else {
-      input.image_url = params.imageUrls[0];
-      if (params.strength !== undefined) input.strength = params.strength;
-      if (input.strength === undefined) input.strength = 0.65;
+      input.image_url = imageUrls[0];
+      if (model.supportsStrength) {
+        input.strength =
+          params.strength !== undefined ? params.strength : 0.65;
+      }
     }
 
     const { data, requestId } = await runQueuedModel({
@@ -241,12 +273,7 @@ async function runModel(params: {
       requestId,
     };
   } catch (err) {
-    const message =
-      err instanceof Error
-        ? err.message
-        : typeof err === "string"
-          ? err
-          : "Unknown fal generation error.";
+    const message = formatFalError(err);
 
     return {
       ok: false,
@@ -271,6 +298,7 @@ export async function generateFromSketchMulti(
   const num = Math.min(Math.max(input.numImages ?? 1, 1), 3);
 
   try {
+    const imageUrls = await resolveImageUrlsForFal(input.sketchUrls);
     const falInput: Record<string, unknown> = {
       ...promptFields,
       num_images: num,
@@ -280,12 +308,16 @@ export async function generateFromSketchMulti(
       falInput.seed = input.seed;
     }
     if (model.imageInput === "image_urls") {
-      falInput.image_urls = input.sketchUrls;
+      falInput.image_urls = imageUrls;
       falInput.aspect_ratio = input.aspectRatio ?? "2:3";
-      if (input.strength !== undefined) falInput.strength = input.strength;
+      if (model.supportsStrength && input.strength !== undefined) {
+        falInput.strength = input.strength;
+      }
     } else {
-      falInput.image_url = input.sketchUrls[0];
-      falInput.strength = input.strength ?? 0.65;
+      falInput.image_url = imageUrls[0];
+      if (model.supportsStrength) {
+        falInput.strength = input.strength ?? 0.65;
+      }
     }
 
     const { data, requestId } = await runQueuedModel({
@@ -312,7 +344,7 @@ export async function generateFromSketchMulti(
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : "Multi generate failed",
+      error: formatFalError(err),
       modelId: model.id,
     };
   }

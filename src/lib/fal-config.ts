@@ -16,6 +16,8 @@ export type FalModelConfig = {
   imageInput: "image_urls" | "image_url";
   supportsNegativePrompt: boolean;
   supportsSeed: boolean;
+  /** FLUX img2img supports strength; Nano Banana edit does not (422 if sent). */
+  supportsStrength: boolean;
 };
 
 export const FAL_MODEL_OPTIONS = {
@@ -26,6 +28,7 @@ export const FAL_MODEL_OPTIONS = {
     imageInput: "image_urls",
     supportsNegativePrompt: false,
     supportsSeed: true,
+    supportsStrength: false,
   },
   "nano-banana-2-edit": {
     id: "fal-ai/nano-banana-2/edit",
@@ -34,6 +37,7 @@ export const FAL_MODEL_OPTIONS = {
     imageInput: "image_urls",
     supportsNegativePrompt: false,
     supportsSeed: true,
+    supportsStrength: false,
   },
   "flux-dev-img2img": {
     id: "fal-ai/flux/dev/image-to-image",
@@ -42,6 +46,7 @@ export const FAL_MODEL_OPTIONS = {
     imageInput: "image_url",
     supportsNegativePrompt: true,
     supportsSeed: true,
+    supportsStrength: true,
   },
 } as const satisfies Record<string, FalModelConfig>;
 

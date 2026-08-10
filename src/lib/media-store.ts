@@ -23,6 +23,42 @@ export function mediaPublicUrl(id: string): string {
   return `/api/media/${id}`;
 }
 
+/** Extract media id from `/api/media/{id}` (absolute or relative). */
+export function parseMediaId(url: string): string | null {
+  const m = url.match(/\/api\/media\/([a-zA-Z0-9_-]+)/);
+  return m?.[1] ?? null;
+}
+
+/**
+ * Turn a durable `/api/media/...` URL (or any local buffer) into a fal CDN URL
+ * fal can fetch. Pass-through for already-public remote URLs.
+ */
+export async function ensureFalFetchableUrl(
+  url: string,
+  upload: (file: Blob) => Promise<string>,
+): Promise<string> {
+  const mediaId = parseMediaId(url);
+  if (mediaId) {
+    const buf = readMediaFile(mediaId);
+    if (!buf) {
+      throw new Error(`Local media ${mediaId} not found on disk.`);
+    }
+    const file = new File([new Uint8Array(buf)], `${mediaId}.png`, {
+      type: "image/png",
+    });
+    return upload(file);
+  }
+
+  // Relative app paths won't resolve for fal
+  if (url.startsWith("/")) {
+    throw new Error(
+      `Image URL is app-local (${url}) and cannot be fetched by fal.`,
+    );
+  }
+
+  return url;
+}
+
 /**
  * Download a remote image (typically fal CDN) and store it durably.
  * Returns the local public URL. On failure, returns the original URL.
