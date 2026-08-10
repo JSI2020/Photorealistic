@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { getUsdPkrRate, usdToPkr } from "@/lib/currency";
 import { polishUserPrompt } from "@/lib/deepseek";
 import { refineImage } from "@/lib/fal";
+import { persistRemoteImage } from "@/lib/media-store";
 import {
   getHouseModelById,
   houseModelToPersona,
@@ -17,6 +18,7 @@ import {
   type PromptMode,
 } from "@/lib/prompt-builder";
 import { getAppSettings } from "@/lib/settings-store";
+import { assertWithinSpendCap } from "@/lib/spend-gate";
 
 export const runtime = "nodejs";
 
@@ -84,6 +86,21 @@ export async function POST(request: Request) {
         });
 
     const settings = await getAppSettings();
+
+    const gate = await assertWithinSpendCap({
+      modelKey: settings.fal.refineModel,
+    });
+    if (!gate.ok) {
+      return NextResponse.json(
+        {
+          error: gate.error,
+          code: "SPEND_CAP",
+          spend: gate.snapshot,
+        },
+        { status: 402 },
+      );
+    }
+
     const built = buildPrompt({
       description: polished.description,
       shirtColour: polished.shirtColour,
@@ -106,10 +123,12 @@ export async function POST(request: Request) {
 
     const wantsBg = feedbackRequestsBackground(polished.feedback ?? body.feedback);
 
-    // Pose-only needs moderate strength: enough to restage, low enough to keep colours/face.
-    let strength = mode === "sketch" ? 0.5 : 0.58;
-    if (poseOnly) strength = 0.42;
-    else if (wantsBg) strength = mode === "sketch" ? 0.72 : 0.78;
+    const s = settings.strengths;
+    let strength = mode === "sketch" ? s.refineSketch : s.refineDefault;
+    if (poseOnly) strength = s.poseOnly;
+    else if (wantsBg) {
+      strength = mode === "sketch" ? s.backgroundSketch : s.backgroundDefault;
+    }
 
     const result = await refineImage(
       {
@@ -128,10 +147,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: result.error, modelId: result.modelId }, { status: 502 });
     }
 
+    const persisted = await persistRemoteImage(result.imageUrl);
+
     const version = {
       id: randomUUID(),
       parentVersionId: body.parentVersionId ?? null,
-      imageUrl: result.imageUrl,
+      imageUrl: persisted.url,
       prompt: built.prompt,
       negativePrompt: built.negativePrompt,
       seed: result.seed ?? null,
@@ -139,6 +160,8 @@ export async function POST(request: Request) {
       feedback: polished.feedback ?? body.feedback ?? null,
       costUsd: result.costUsd,
       requestId: result.requestId,
+      aiGenerated: true as const,
+      altText: null as string | null,
     };
 
     const totalCost = (body.previousTotalCost ?? 0) + result.costUsd;

@@ -164,6 +164,18 @@ export function listSavedDesigns(): DesignRecord[] {
     .map(toRecord);
 }
 
+/** All designs (saved or not) with versions — for monthly spend totals. */
+export function listAllDesignsForSpend(): Array<{
+  versions: Array<{ costUsd: number; createdAt: string }>;
+}> {
+  return readAll().map((d) => ({
+    versions: d.versions.map((v) => ({
+      costUsd: v.costUsd || 0,
+      createdAt: v.createdAt,
+    })),
+  }));
+}
+
 export function getDesign(id: string): DesignWithVersions | null {
   const found = readAll().find((d) => d.id === id);
   if (!found) return null;

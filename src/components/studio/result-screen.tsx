@@ -17,6 +17,9 @@ export type StudioVersion = {
   costUsd: number;
   modelId: string;
   createdAt?: string | Date;
+  parentVersionId?: string | null;
+  aiGenerated?: boolean;
+  altText?: string | null;
 };
 
 const QUICK_CHIPS = [
@@ -37,7 +40,6 @@ type ResultScreenProps = {
   versions: StudioVersion[];
   activeVersionId: string;
   totalCost: number;
-  /** Running session total across designs (USD). */
   sessionCost?: number;
   usdPkrRate?: number;
   sketchPreviews: string[];
@@ -46,6 +48,7 @@ type ResultScreenProps = {
   busy?: boolean;
   busyLabel?: string;
   error?: string | null;
+  perDesignCeilingUsd?: number | null;
   onSelectVersion: (id: string) => void;
   onRefine: (payload: {
     feedback: string;
@@ -57,7 +60,53 @@ type ResultScreenProps = {
   onSave: () => Promise<void>;
   onStartOver: () => void;
   onRetry?: () => void;
+  onLockHeroAngles?: () => Promise<void>;
+  onColourways?: (colours: string[]) => Promise<void>;
+  onFixHands?: () => Promise<void>;
+  onUpscale?: () => Promise<void>;
+  onExportSet?: () => Promise<void>;
+  onHandoffAks?: () => Promise<void>;
 };
+
+function VersionTree({
+  versions,
+  activeId,
+  onSelect,
+}: {
+  versions: StudioVersion[];
+  activeId: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-1 rounded-lg border border-border bg-muted/20 p-3 text-xs">
+      <p className="font-medium text-foreground">Version history</p>
+      <ul className="space-y-1">
+        {versions.map((v, i) => {
+          const parentIdx = v.parentVersionId
+            ? versions.findIndex((p) => p.id === v.parentVersionId)
+            : -1;
+          return (
+            <li key={v.id}>
+              <button
+                type="button"
+                onClick={() => onSelect(v.id)}
+                className={`w-full rounded px-2 py-1 text-left transition hover:bg-background ${
+                  v.id === activeId ? "bg-background ring-1 ring-border" : ""
+                }`}
+              >
+                <span className="text-muted-foreground">
+                  {parentIdx >= 0 ? `↳ from v${parentIdx + 1} · ` : ""}
+                </span>
+                v{i + 1}
+                {v.feedback ? ` — ${v.feedback.slice(0, 48)}` : " — hero"}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
 export function ResultScreen({
   designId,
@@ -72,11 +121,18 @@ export function ResultScreen({
   busy,
   busyLabel,
   error,
+  perDesignCeilingUsd,
   onSelectVersion,
   onRefine,
   onSave,
   onStartOver,
   onRetry,
+  onLockHeroAngles,
+  onColourways,
+  onFixHands,
+  onUpscale,
+  onExportSet,
+  onHandoffAks,
 }: ResultScreenProps) {
   const [feedback, setFeedback] = useState("");
   const [shirtColour, setShirtColour] = useState("");
@@ -84,6 +140,7 @@ export function ResultScreen({
   const [fabric, setFabric] = useState("");
   const [compare, setCompare] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [colourInput, setColourInput] = useState("deep maroon, ivory, sage");
 
   const active = useMemo(
     () => versions.find((v) => v.id === activeVersionId) ?? versions.at(-1),
@@ -95,6 +152,8 @@ export function ResultScreen({
   const designPkr = usdToPkr(totalCost, usdPkrRate);
   const sessionPkr = usdToPkr(sessionCost, usdPkrRate);
   const lastCallPkr = usdToPkr(active.costUsd || 0, usdPkrRate);
+  const overDesignCeiling =
+    perDesignCeilingUsd != null && totalCost >= perDesignCeilingUsd;
 
   return (
     <section className="mx-auto w-full max-w-5xl space-y-6">
@@ -119,6 +178,12 @@ export function ResultScreen({
             {" · "}
             rate Rs {usdPkrRate}/USD
           </p>
+          {overDesignCeiling && (
+            <p className="mt-1 text-xs text-amber-700">
+              Per-design cost ceiling reached (${totalCost.toFixed(2)} / $
+              {perDesignCeilingUsd!.toFixed(2)}).
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -158,10 +223,16 @@ export function ResultScreen({
           </div>
         )}
         <div className="relative overflow-hidden rounded-lg bg-muted/30 ring-1 ring-border">
+          <span className="absolute left-2 top-2 z-10 rounded bg-background/90 px-2 py-0.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase ring-1 ring-border">
+            AI visualization
+          </span>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={active.imageUrl}
-            alt="Generated result"
+            alt={
+              active.altText ||
+              "AI visualization of garment — not a real product photograph"
+            }
             className="mx-auto max-h-[70vh] w-full object-contain"
           />
           {busy && (
@@ -179,27 +250,127 @@ export function ResultScreen({
         </div>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {versions.map((v, i) => (
-          <button
-            key={v.id}
-            type="button"
-            onClick={() => onSelectVersion(v.id)}
-            className={`shrink-0 overflow-hidden rounded-md ring-2 transition ${
-              v.id === active.id
-                ? "ring-foreground"
-                : "ring-transparent opacity-80 hover:opacity-100"
-            }`}
-            title={v.feedback || `Version ${i + 1}`}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={v.imageUrl}
-              alt={`Version ${i + 1}`}
-              className="h-20 w-14 object-cover"
-            />
-          </button>
-        ))}
+      <div className="grid gap-4 md:grid-cols-[1fr_220px]">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {versions.map((v, i) => (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => onSelectVersion(v.id)}
+              className={`shrink-0 overflow-hidden rounded-md ring-2 transition ${
+                v.id === active.id
+                  ? "ring-foreground"
+                  : "ring-transparent opacity-80 hover:opacity-100"
+              }`}
+              title={v.feedback || `Version ${i + 1}`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={v.imageUrl}
+                alt={`Version ${i + 1}`}
+                className="h-20 w-14 object-cover"
+              />
+            </button>
+          ))}
+        </div>
+        <VersionTree
+          versions={versions}
+          activeId={active.id}
+          onSelect={onSelectVersion}
+        />
+      </div>
+
+      <div className="space-y-3 rounded-xl border border-border bg-card/40 p-4 sm:p-5">
+        <Label>Catalog tools</Label>
+        <p className="text-xs text-muted-foreground">
+          Lock the active image as hero, then derive angles or colourways for a
+          storefront set.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {onLockHeroAngles && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void onLockHeroAngles()}
+            >
+              Lock hero → angles
+            </Button>
+          )}
+          {onFixHands && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void onFixHands()}
+            >
+              Fix hands / detail
+            </Button>
+          )}
+          {onUpscale && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void onUpscale()}
+            >
+              Upscale final
+            </Button>
+          )}
+          {onExportSet && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void onExportSet()}
+            >
+              Export set JSON
+            </Button>
+          )}
+          {onHandoffAks && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void onHandoffAks()}
+            >
+              Handoff to AKS
+            </Button>
+          )}
+        </div>
+        {onColourways && (
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[200px] flex-1 space-y-1">
+              <Label htmlFor="colourways">Colourways (comma-separated)</Label>
+              <Input
+                id="colourways"
+                value={colourInput}
+                onChange={(e) => setColourInput(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy}
+              onClick={() =>
+                void onColourways(
+                  colourInput
+                    .split(",")
+                    .map((c) => c.trim())
+                    .filter(Boolean),
+                )
+              }
+            >
+              Batch colourways
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="space-y-4 rounded-xl border border-border bg-card/40 p-4 sm:p-5">
@@ -223,7 +394,9 @@ export function ResultScreen({
               disabled={busy}
               className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition hover:border-foreground/30 hover:text-foreground"
               onClick={() =>
-                setFeedback((prev) => (prev ? `${prev}; ${chip.toLowerCase()}` : chip))
+                setFeedback((prev) =>
+                  prev ? `${prev}; ${chip.toLowerCase()}` : chip,
+                )
               }
             >
               {chip}
@@ -301,7 +474,10 @@ export function ResultScreen({
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
-            disabled={busy || (!feedback.trim() && !shirtColour && !trouserColour && !fabric)}
+            disabled={
+              busy ||
+              (!feedback.trim() && !shirtColour && !trouserColour && !fabric)
+            }
             onClick={() =>
               void onRefine({
                 feedback: feedback.trim(),

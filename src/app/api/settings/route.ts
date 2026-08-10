@@ -67,6 +67,18 @@ export async function PUT(request: Request) {
         body.monthlySpendReminderUsd === undefined
           ? current.monthlySpendReminderUsd
           : body.monthlySpendReminderUsd,
+      monthlySpendCapUsd:
+        body.monthlySpendCapUsd === undefined
+          ? current.monthlySpendCapUsd
+          : body.monthlySpendCapUsd,
+      perDesignCostCeilingUsd:
+        body.perDesignCostCeilingUsd === undefined
+          ? current.perDesignCostCeilingUsd
+          : body.perDesignCostCeilingUsd,
+      strengths: {
+        ...current.strengths,
+        ...(body.strengths ?? {}),
+      },
     };
 
     // Keep persona fields synced to the preferred fixed model when not random.

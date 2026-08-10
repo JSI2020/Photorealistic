@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Images, Settings2 } from "lucide-react";
 
+import { CreditsBar } from "@/components/studio/credits-bar";
 import { InputScreen } from "@/components/studio/input-screen";
 import { ResultScreen, type StudioVersion } from "@/components/studio/result-screen";
 import { SettingsPanel } from "@/components/studio/settings-panel";
@@ -57,6 +58,7 @@ export function StudioApp() {
   const [draft, setDraft] = useState<DraftMeta | null>(null);
   const [defaultHouseModelId, setDefaultHouseModelId] =
     useState<HouseModelSelection>(RANDOM_HOUSE_MODEL_ID);
+  const [creditsRefresh, setCreditsRefresh] = useState(0);
   const [lastRefinePayload, setLastRefinePayload] = useState<{
     feedback: string;
     shirtColour?: string;
@@ -95,12 +97,14 @@ export function StudioApp() {
       sketchUrls: string[];
       oldDesignUrls: string[];
       oldDesignUrl?: string;
+      fabricUrl?: string;
       description: string;
       shirtColour: string;
       trouserColour: string;
       fabric: string;
       sketchPreviews: string[];
       houseModelId: HouseModelSelection;
+      numCandidates?: number;
     }) => {
       setBusy(true);
       setBusyLabel("Generating…");
@@ -132,11 +136,13 @@ export function StudioApp() {
             sketchUrls: payload.sketchUrls,
             oldDesignUrls: payload.oldDesignUrls,
             oldDesignUrl: payload.oldDesignUrl ?? payload.oldDesignUrls[0],
+            fabricUrl: payload.fabricUrl,
             description: payload.description,
             shirtColour: payload.shirtColour,
             trouserColour: payload.trouserColour,
             fabric: payload.fabric,
             houseModelId: payload.houseModelId,
+            numCandidates: payload.numCandidates ?? 1,
           }),
         });
         const parsed = await readJsonSafe<{
@@ -170,6 +176,7 @@ export function StudioApp() {
         setTotalCost(data.totalCost);
         setSessionCost((s) => s + callCost);
         if (data.usdPkrRate) setUsdPkrRate(data.usdPkrRate);
+        setCreditsRefresh((n) => n + 1);
         setPhase("result");
       } catch (err) {
         setError(networkErrorMessage(err));
@@ -260,6 +267,7 @@ export function StudioApp() {
         setTotalCost(data.totalCost);
         setSessionCost((s) => s + callCost);
         if (data.usdPkrRate) setUsdPkrRate(data.usdPkrRate);
+        setCreditsRefresh((n) => n + 1);
       } catch (err) {
         setError(networkErrorMessage(err));
       } finally {
@@ -268,6 +276,200 @@ export function StudioApp() {
     },
     [versions, activeVersionId, draft, totalCost],
   );
+
+  const appendVersions = useCallback(
+    (next: ApiVersion[], nextTotal: number) => {
+      setVersions((prev) => [...prev, ...next]);
+      if (next[0]) setActiveVersionId(next[next.length - 1]!.id);
+      setTotalCost(nextTotal);
+      const added = next.reduce((s, v) => s + (v.costUsd || 0), 0);
+      setSessionCost((s) => s + added);
+      setCreditsRefresh((n) => n + 1);
+    },
+    [],
+  );
+
+  const handleLockHeroAngles = useCallback(async () => {
+    const active = versions.find((v) => v.id === activeVersionId);
+    if (!active || !draft) return;
+    setBusy(true);
+    setBusyLabel("Deriving angles…");
+    setError(null);
+    try {
+      const res = await fetchSafe("/api/catalog/angles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          heroImageUrl: active.imageUrl,
+          parentVersionId: active.id,
+          houseModelId: draft.houseModelId,
+          description: draft.description,
+          shirtColour: draft.shirtColour,
+          trouserColour: draft.trouserColour,
+          fabric: draft.fabric,
+          previousTotalCost: totalCost,
+        }),
+      });
+      const parsed = await readJsonSafe<{
+        versions: ApiVersion[];
+        totalCost: number;
+        error?: string;
+      }>(res);
+      if (!parsed.ok || !parsed.data?.versions?.length) {
+        throw new Error(parsed.error || "Angle set failed.");
+      }
+      appendVersions(parsed.data.versions, parsed.data.totalCost);
+    } catch (err) {
+      setError(networkErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [versions, activeVersionId, draft, totalCost, appendVersions]);
+
+  const handleColourways = useCallback(
+    async (colours: string[]) => {
+      const active = versions.find((v) => v.id === activeVersionId);
+      if (!active || !draft || !colours.length) return;
+      setBusy(true);
+      setBusyLabel("Colourway batch…");
+      setError(null);
+      try {
+        const res = await fetchSafe("/api/catalog/colourways", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            heroImageUrl: active.imageUrl,
+            parentVersionId: active.id,
+            houseModelId: draft.houseModelId,
+            description: draft.description,
+            fabric: draft.fabric,
+            colours,
+            previousTotalCost: totalCost,
+          }),
+        });
+        const parsed = await readJsonSafe<{
+          versions: ApiVersion[];
+          totalCost: number;
+          error?: string;
+        }>(res);
+        if (!parsed.ok || !parsed.data?.versions?.length) {
+          throw new Error(parsed.error || "Colourways failed.");
+        }
+        appendVersions(parsed.data.versions, parsed.data.totalCost);
+      } catch (err) {
+        setError(networkErrorMessage(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [versions, activeVersionId, draft, totalCost, appendVersions],
+  );
+
+  const handleFinishAction = useCallback(
+    async (action: "upscale" | "fix-hands") => {
+      const active = versions.find((v) => v.id === activeVersionId);
+      if (!active || !draft) return;
+      setBusy(true);
+      setBusyLabel(action === "upscale" ? "Upscaling…" : "Fixing hands…");
+      setError(null);
+      try {
+        const res = await fetchSafe("/api/catalog/finish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action,
+            baseImageUrl: active.imageUrl,
+            parentVersionId: active.id,
+            houseModelId: draft.houseModelId,
+            description: draft.description,
+            previousTotalCost: totalCost,
+          }),
+        });
+        const parsed = await readJsonSafe<{
+          version: ApiVersion;
+          totalCost: number;
+          costUsd?: number;
+          error?: string;
+        }>(res);
+        if (!parsed.ok || !parsed.data?.version) {
+          throw new Error(parsed.error || "Finish action failed.");
+        }
+        appendVersions([parsed.data.version], parsed.data.totalCost);
+      } catch (err) {
+        setError(networkErrorMessage(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [versions, activeVersionId, draft, totalCost, appendVersions],
+  );
+
+  const handleExportSet = useCallback(async () => {
+    if (savedDesignId) {
+      window.open(`/api/catalog/export?id=${savedDesignId}`, "_blank");
+      return;
+    }
+    const res = await fetch("/api/catalog/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: draft?.description?.slice(0, 80),
+        description: draft?.description,
+        versions: versions.map((v) => ({
+          imageUrl: v.imageUrl,
+          feedback: v.feedback,
+          parentVersionId: v.parentVersionId,
+        })),
+      }),
+    });
+    const data = await res.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "product-set.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [savedDesignId, draft, versions]);
+
+  const handleHandoffAks = useCallback(async () => {
+    setBusy(true);
+    setBusyLabel("Handing off…");
+    setError(null);
+    try {
+      const res = await fetchSafe("/api/catalog/handoff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          designId: savedDesignId ?? undefined,
+          title: draft?.description?.slice(0, 80),
+          images: versions.map((v, i) => ({
+            url: v.imageUrl,
+            role: i === 0 ? "hero" : v.feedback || `v${i + 1}`,
+            altText: `AI visualization — ${draft?.description?.slice(0, 60) || "garment"}`,
+          })),
+        }),
+      });
+      const parsed = await readJsonSafe<{
+        ok?: boolean;
+        dryRun?: boolean;
+        error?: string;
+        message?: string;
+      }>(res);
+      if (!parsed.ok) throw new Error(parsed.error || "Handoff failed.");
+      setError(
+        parsed.data?.dryRun
+          ? parsed.data.message || "AKS dry-run OK (webhook not configured)."
+          : "Handed off to AKS.",
+      );
+    } catch (err) {
+      setError(networkErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [savedDesignId, draft, versions]);
 
   const handleSave = useCallback(async () => {
     if (!draft || !versions.length) return;
@@ -308,14 +510,15 @@ export function StudioApp() {
   return (
     <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_#f3efe8_0%,_#faf9f7_45%,_#f5f5f4_100%)] text-foreground">
       <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4 sm:px-6">
-          <Link href="/" className="font-serif text-lg tracking-tight">
+        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-3 px-4 sm:px-6">
+          <Link href="/" className="shrink-0 font-serif text-lg tracking-tight">
             Sketch → Photoreal
           </Link>
-          <div className="flex items-center gap-1 sm:gap-2">
+          <CreditsBar refreshKey={creditsRefresh} />
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             {sessionCost > 0 && (
               <span
-                className="hidden text-xs text-muted-foreground sm:inline"
+                className="hidden text-xs text-muted-foreground lg:inline"
                 title={`Rate Rs ${usdPkrRate} / USD`}
               >
                 session {formatPkr(usdToPkr(sessionCost, usdPkrRate))}
@@ -388,6 +591,12 @@ export function StudioApp() {
                 ? () => void handleRefine(lastRefinePayload)
                 : undefined
             }
+            onLockHeroAngles={handleLockHeroAngles}
+            onColourways={handleColourways}
+            onFixHands={() => handleFinishAction("fix-hands")}
+            onUpscale={() => handleFinishAction("upscale")}
+            onExportSet={handleExportSet}
+            onHandoffAks={handleHandoffAks}
           />
         )}
       </main>

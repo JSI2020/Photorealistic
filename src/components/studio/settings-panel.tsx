@@ -20,6 +20,59 @@ type SettingsPanelProps = {
 
 const MODEL_KEYS = Object.keys(FAL_MODEL_OPTIONS) as FalModelKey[];
 
+function SpendDashboard() {
+  const [data, setData] = useState<{
+    spend?: {
+      monthSpendUsd: number;
+      monthlySpendCapUsd: number | null;
+      monthKey: string;
+    };
+    byModel?: Record<string, { count: number; costUsd: number }>;
+    approvedImagesThisMonth?: number;
+    costPerApprovedUsd?: number | null;
+  } | null>(null);
+
+  useEffect(() => {
+    void fetch("/api/spend")
+      .then((r) => r.json())
+      .then(setData)
+      .catch(() => setData(null));
+  }, []);
+
+  if (!data?.spend) {
+    return (
+      <p className="text-xs text-muted-foreground">Loading spend…</p>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-border p-3">
+      <Label>Spend this month ({data.spend.monthKey})</Label>
+      <p className="text-sm">
+        ${data.spend.monthSpendUsd.toFixed(2)}
+        {data.spend.monthlySpendCapUsd != null
+          ? ` / $${data.spend.monthlySpendCapUsd.toFixed(0)} cap`
+          : " (no cap)"}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Approved images: {data.approvedImagesThisMonth ?? 0}
+        {data.costPerApprovedUsd != null
+          ? ` · ~$${data.costPerApprovedUsd}/image`
+          : ""}
+      </p>
+      {data.byModel && Object.keys(data.byModel).length > 0 && (
+        <ul className="space-y-0.5 text-xs text-muted-foreground">
+          {Object.entries(data.byModel).map(([model, v]) => (
+            <li key={model}>
+              {model}: {v.count} · ${v.costUsd.toFixed(2)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [saving, setSaving] = useState(false);
@@ -164,24 +217,91 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="spend">Monthly spend reminder (USD)</Label>
+                <Label htmlFor="spend-cap">Monthly spend cap (USD)</Label>
                 <Input
-                  id="spend"
+                  id="spend-cap"
                   type="number"
                   min={0}
                   step={1}
-                  placeholder="optional"
-                  value={settings.monthlySpendReminderUsd ?? ""}
+                  placeholder="unlimited"
+                  value={settings.monthlySpendCapUsd ?? ""}
                   onChange={(e) =>
                     setSettings({
                       ...settings,
-                      monthlySpendReminderUsd: e.target.value
+                      monthlySpendCapUsd: e.target.value
+                        ? Number(e.target.value)
+                        : null,
+                    })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Hard stop before generate/refine when month spend would exceed
+                  this. Leave empty for unlimited.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="design-ceiling">
+                  Per-design cost warning (USD)
+                </Label>
+                <Input
+                  id="design-ceiling"
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  placeholder="optional"
+                  value={settings.perDesignCostCeilingUsd ?? ""}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      perDesignCostCeilingUsd: e.target.value
                         ? Number(e.target.value)
                         : null,
                     })
                   }
                 />
               </div>
+
+              <div className="space-y-2">
+                <Label>Refine strengths</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      ["poseOnly", "Pose-only"],
+                      ["refineSketch", "Refine sketch"],
+                      ["refineDefault", "Refine default"],
+                      ["backgroundSketch", "BG sketch"],
+                      ["backgroundDefault", "BG default"],
+                      ["oldDesignGenerate", "Old design gen"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <div key={key} className="space-y-1">
+                      <Label htmlFor={`str-${key}`} className="text-xs">
+                        {label}
+                      </Label>
+                      <Input
+                        id={`str-${key}`}
+                        type="number"
+                        min={0.05}
+                        max={1}
+                        step={0.01}
+                        value={settings.strengths[key]}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            strengths: {
+                              ...settings.strengths,
+                              [key]: Number(e.target.value),
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <SpendDashboard />
             </>
           )}
         </div>

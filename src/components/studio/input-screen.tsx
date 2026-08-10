@@ -25,6 +25,7 @@ export type UploadedAsset = {
   url: string;
   lineArtUrl?: string;
   name: string;
+  role?: string;
 };
 
 type InputScreenProps = {
@@ -36,26 +37,35 @@ type InputScreenProps = {
     sketchUrls: string[];
     oldDesignUrls: string[];
     oldDesignUrl?: string;
+    fabricUrl?: string;
     description: string;
     shirtColour: string;
     trouserColour: string;
     fabric: string;
     sketchPreviews: string[];
     houseModelId: HouseModelSelection;
+    numCandidates?: number;
   }) => Promise<void>;
 };
 
 async function uploadFiles(
   files: File[],
-  kind: "sketch" | "old-design",
+  kind: "sketch" | "old-design" | "fabric",
+  role?: string,
 ): Promise<UploadedAsset[]> {
   const form = new FormData();
   form.set("kind", kind);
+  if (role) form.set("role", role);
   for (const file of files) form.append("files", file);
 
   const res = await fetchSafe("/api/upload", { method: "POST", body: form });
   const parsed = await readJsonSafe<{
-    files?: Array<{ originalName: string; url: string; lineArtUrl?: string }>;
+    files?: Array<{
+      originalName: string;
+      url: string;
+      lineArtUrl?: string;
+      role?: string;
+    }>;
     error?: string;
   }>(res);
   if (!parsed.ok || !parsed.data?.files?.length) {
@@ -67,6 +77,7 @@ async function uploadFiles(
     url: f.url,
     lineArtUrl: f.lineArtUrl,
     name: f.originalName,
+    role: f.role,
   }));
 }
 
@@ -78,18 +89,23 @@ export function InputScreen({
 }: InputScreenProps) {
   const sketchInputRef = useRef<HTMLInputElement>(null);
   const oldInputRef = useRef<HTMLInputElement>(null);
+  const fabricInputRef = useRef<HTMLInputElement>(null);
   const [sourceMode, setSourceMode] = useState<PromptMode>("sketch");
   const [sketches, setSketches] = useState<UploadedAsset[]>([]);
   const [oldDesigns, setOldDesigns] = useState<UploadedAsset[]>([]);
+  const [fabricSwatch, setFabricSwatch] = useState<UploadedAsset | null>(null);
   const [description, setDescription] = useState("");
   const [shirtColour, setShirtColour] = useState("");
   const [trouserColour, setTrouserColour] = useState("");
   const [fabric, setFabric] = useState("");
+  const [numCandidates, setNumCandidates] = useState(1);
   const [houseModelId, setHouseModelId] =
     useState<HouseModelSelection>(defaultHouseModelId);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [duplicateId, setDuplicateId] = useState("");
+  const [dupMsg, setDupMsg] = useState<string | null>(null);
 
   useEffect(() => {
     setHouseModelId(defaultHouseModelId);
@@ -136,13 +152,41 @@ export function InputScreen({
   const resetInputs = () => {
     sketches.forEach((s) => URL.revokeObjectURL(s.localPreview));
     oldDesigns.forEach((s) => URL.revokeObjectURL(s.localPreview));
+    if (fabricSwatch) URL.revokeObjectURL(fabricSwatch.localPreview);
     setSketches([]);
     setOldDesigns([]);
+    setFabricSwatch(null);
     setDescription("");
     setShirtColour("");
     setTrouserColour("");
     setFabric("");
+    setNumCandidates(1);
     setError(null);
+    setDupMsg(null);
+  };
+
+  const loadDuplicateBrief = async () => {
+    const id = duplicateId.trim();
+    if (!id) return;
+    setDupMsg(null);
+    try {
+      const res = await fetch(`/api/designs?id=${encodeURIComponent(id)}`);
+      const data = (await res.json()) as {
+        description?: string | null;
+        shirtColour?: string | null;
+        trouserColour?: string | null;
+        fabric?: string | null;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error || "Design not found");
+      setDescription(data.description ?? "");
+      setShirtColour(data.shirtColour ?? "");
+      setTrouserColour(data.trouserColour ?? "");
+      setFabric(data.fabric ?? "");
+      setDupMsg("Brief copied — upload a new sketch/photo to generate.");
+    } catch (err) {
+      setDupMsg(err instanceof Error ? err.message : "Duplicate failed");
+    }
   };
 
   return (
@@ -445,6 +489,118 @@ export function InputScreen({
         </div>
       </div>
 
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Fabric swatch photo (optional)</Label>
+          <p className="text-xs text-muted-foreground">
+            Real cloth photo used as colour/texture reference.
+          </p>
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={disabled || uploading}
+              onClick={() => fabricInputRef.current?.click()}
+            >
+              Upload swatch
+            </Button>
+            <input
+              ref={fabricInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                void (async () => {
+                  setUploading(true);
+                  try {
+                    const [uploaded] = await uploadFiles(
+                      [file],
+                      "fabric",
+                      "fabric",
+                    );
+                    if (fabricSwatch) {
+                      URL.revokeObjectURL(fabricSwatch.localPreview);
+                    }
+                    setFabricSwatch(uploaded ?? null);
+                  } catch (err) {
+                    setError(
+                      err instanceof Error
+                        ? err.message
+                        : "Fabric upload failed",
+                    );
+                  } finally {
+                    setUploading(false);
+                  }
+                })();
+              }}
+            />
+            {fabricSwatch && (
+              <div className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={fabricSwatch.localPreview}
+                  alt="Fabric swatch"
+                  className="size-12 rounded object-cover ring-1 ring-border"
+                />
+                <button
+                  type="button"
+                  className="absolute -right-1.5 -top-1.5 rounded-full bg-foreground p-0.5 text-background"
+                  aria-label="Remove swatch"
+                  onClick={() => {
+                    URL.revokeObjectURL(fabricSwatch.localPreview);
+                    setFabricSwatch(null);
+                  }}
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="candidates">First-pass candidates</Label>
+          <select
+            id="candidates"
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+            value={numCandidates}
+            disabled={disabled}
+            onChange={(e) => setNumCandidates(Number(e.target.value))}
+          >
+            <option value={1}>1 image (cheaper)</option>
+            <option value={2}>2 candidates — pick best</option>
+            <option value={3}>3 candidates — pick best</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+        <Label htmlFor="dup">Duplicate brief from saved design</Label>
+        <div className="flex gap-2">
+          <Input
+            id="dup"
+            placeholder="Paste design id from gallery URL"
+            value={duplicateId}
+            onChange={(e) => setDuplicateId(e.target.value)}
+            disabled={disabled}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            disabled={disabled || !duplicateId.trim()}
+            onClick={() => void loadDuplicateBrief()}
+          >
+            Load
+          </Button>
+        </div>
+        {dupMsg && (
+          <p className="text-xs text-muted-foreground">{dupMsg}</p>
+        )}
+      </div>
+
       {error && (
         <p className="text-sm text-destructive" role="alert">
           {error}
@@ -459,12 +615,18 @@ export function InputScreen({
           onClick={() => {
             const oldUrls =
               sourceMode === "old-design" ? oldDesigns.map((s) => s.url) : [];
+            const sketchUrls =
+              sourceMode === "sketch"
+                ? sketches.flatMap((s) =>
+                    s.lineArtUrl ? [s.url, s.lineArtUrl] : [s.url],
+                  )
+                : [];
             void onGenerate({
               sourceMode,
-              sketchUrls:
-                sourceMode === "sketch" ? sketches.map((s) => s.url) : [],
+              sketchUrls,
               oldDesignUrls: oldUrls,
               oldDesignUrl: oldUrls[0],
+              fabricUrl: fabricSwatch?.url,
               description,
               shirtColour,
               trouserColour,
@@ -476,6 +638,7 @@ export function InputScreen({
                     ? oldDesigns.map((s) => s.localPreview)
                     : [],
               houseModelId,
+              numCandidates,
             });
           }}
         >

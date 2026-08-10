@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 
-import { CongratsTicker } from "@/components/congrats-ticker";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -18,10 +17,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="font-sans antialiased">
-        <CongratsTicker />
-        {children}
-      </body>
+      <body className="font-sans antialiased">{children}</body>
     </html>
   );
 }

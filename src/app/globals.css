@@ -129,38 +129,3 @@
     @apply font-sans;
   }
 }
-
-/* Temporary congrats ticker (auto-expires in CongratsTicker component) */
-@keyframes congrats-marquee {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-33.333%);
-  }
-}
-
-@keyframes congrats-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.72;
-  }
-}
-
-.congrats-ticker-track {
-  animation: congrats-marquee 28s linear infinite;
-}
-
-.congrats-ticker-pulse {
-  animation: congrats-pulse 1.6s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .congrats-ticker-track,
-  .congrats-ticker-pulse {
-    animation: none;
-  }
-}

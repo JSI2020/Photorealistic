@@ -35,12 +35,14 @@ export type GenerateFromSketchInput = {
   modelKey?: FalModelKey;
   aspectRatio?: string;
   strength?: number;
+  numImages?: number;
 };
 
 export type GenerateFromTextInput = {
   prompt: string;
   negativePrompt?: string;
   seed?: number;
+  numImages?: number;
 };
 
 export type RefineImageInput = {
@@ -85,6 +87,89 @@ function extractImageUrl(data: FalImagePayload): string | undefined {
   return data.images?.[0]?.url ?? data.image?.url;
 }
 
+function extractAllImageUrls(data: FalImagePayload): string[] {
+  if (data.images?.length) {
+    return data.images.map((i) => i.url).filter((u): u is string => Boolean(u));
+  }
+  const one = data.image?.url;
+  return one ? [one] : [];
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function isTransientError(message: string): boolean {
+  return /timeout|429|502|503|504|ECONNRESET|ETIMEDOUT|fetch failed|rate.?limit/i.test(
+    message,
+  );
+}
+
+/**
+ * Submit to fal queue and poll until complete. Retries transient failures.
+ */
+async function runQueuedModel(params: {
+  modelId: string;
+  input: Record<string, unknown>;
+  maxAttempts?: number;
+}): Promise<{ data: FalImagePayload; requestId: string }> {
+  configureFal();
+  const maxAttempts = params.maxAttempts ?? 3;
+  let lastError = "fal queue failed";
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const submitted = await fal.queue.submit(params.modelId, {
+        input: params.input,
+      });
+      const requestId = submitted.request_id;
+
+      const started = Date.now();
+      const maxWaitMs = 4 * 60_000;
+      let delay = 800;
+
+      while (Date.now() - started < maxWaitMs) {
+        const status = await fal.queue.status(params.modelId, {
+          requestId,
+          logs: false,
+        });
+
+        const st = status.status as string;
+        if (st === "COMPLETED") {
+          const result = await fal.queue.result(params.modelId, { requestId });
+          return {
+            data: result.data as FalImagePayload,
+            requestId,
+          };
+        }
+
+        if (st === "FAILED") {
+          throw new Error("fal job failed");
+        }
+
+        await sleep(delay);
+        delay = Math.min(delay * 1.35, 4000);
+      }
+
+      throw new Error("fal job timed out after 4 minutes");
+    } catch (err) {
+      lastError =
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+            ? err
+            : "Unknown fal error";
+      if (attempt < maxAttempts && isTransientError(lastError)) {
+        await sleep(500 * attempt * attempt);
+        continue;
+      }
+      throw new Error(lastError);
+    }
+  }
+
+  throw new Error(lastError);
+}
+
 async function runModel(params: {
   modelKey: FalModelKey;
   prompt: string;
@@ -93,6 +178,7 @@ async function runModel(params: {
   imageUrls: string[];
   strength?: number;
   aspectRatio?: string;
+  numImages?: number;
 }): Promise<FalResult> {
   const model = getFalModel(params.modelKey);
 
@@ -104,8 +190,6 @@ async function runModel(params: {
     };
   }
 
-  configureFal();
-
   const promptFields = withNegativePrompt(
     params.prompt,
     params.negativePrompt,
@@ -115,7 +199,7 @@ async function runModel(params: {
   try {
     const input: Record<string, unknown> = {
       ...promptFields,
-      num_images: 1,
+      num_images: Math.min(Math.max(params.numImages ?? 1, 1), 4),
       output_format: "png",
     };
 
@@ -133,14 +217,12 @@ async function runModel(params: {
       if (input.strength === undefined) input.strength = 0.65;
     }
 
-    const result = await fal.subscribe(model.id, {
+    const { data, requestId } = await runQueuedModel({
+      modelId: model.id,
       input,
-      logs: false,
     });
 
-    const data = result.data as FalImagePayload;
     const imageUrl = extractImageUrl(data);
-
     if (!imageUrl) {
       return {
         ok: false,
@@ -153,9 +235,10 @@ async function runModel(params: {
       ok: true,
       imageUrl,
       seed: typeof data.seed === "number" ? data.seed : params.seed,
-      costUsd: model.estimatedCostUsd,
+      costUsd:
+        model.estimatedCostUsd * (Number(input.num_images) || 1),
       modelId: model.id,
-      requestId: result.requestId,
+      requestId,
     };
   } catch (err) {
     const message =
@@ -173,6 +256,68 @@ async function runModel(params: {
   }
 }
 
+/** Multi-candidate helper — returns all image URLs when the model supports it. */
+export async function generateFromSketchMulti(
+  input: GenerateFromSketchInput,
+  runtime: FalRuntimeConfig = DEFAULT_FAL_RUNTIME,
+): Promise<FalResult & { imageUrls?: string[] }> {
+  const modelKey = input.modelKey ?? runtime.generateModel;
+  const model = getFalModel(modelKey);
+  const promptFields = withNegativePrompt(
+    input.prompt,
+    input.negativePrompt,
+    model,
+  );
+  const num = Math.min(Math.max(input.numImages ?? 1, 1), 3);
+
+  try {
+    const falInput: Record<string, unknown> = {
+      ...promptFields,
+      num_images: num,
+      output_format: "png",
+    };
+    if (input.seed !== undefined && model.supportsSeed) {
+      falInput.seed = input.seed;
+    }
+    if (model.imageInput === "image_urls") {
+      falInput.image_urls = input.sketchUrls;
+      falInput.aspect_ratio = input.aspectRatio ?? "2:3";
+      if (input.strength !== undefined) falInput.strength = input.strength;
+    } else {
+      falInput.image_url = input.sketchUrls[0];
+      falInput.strength = input.strength ?? 0.65;
+    }
+
+    const { data, requestId } = await runQueuedModel({
+      modelId: model.id,
+      input: falInput,
+    });
+    const urls = extractAllImageUrls(data);
+    if (!urls.length) {
+      return {
+        ok: false,
+        error: "No images returned.",
+        modelId: model.id,
+      };
+    }
+    return {
+      ok: true,
+      imageUrl: urls[0]!,
+      imageUrls: urls,
+      seed: typeof data.seed === "number" ? data.seed : input.seed,
+      costUsd: model.estimatedCostUsd * urls.length,
+      modelId: model.id,
+      requestId,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Multi generate failed",
+      modelId: model.id,
+    };
+  }
+}
+
 export async function generateFromSketch(
   input: GenerateFromSketchInput,
   runtime: FalRuntimeConfig = DEFAULT_FAL_RUNTIME,
@@ -185,6 +330,7 @@ export async function generateFromSketch(
     imageUrls: input.sketchUrls,
     aspectRatio: input.aspectRatio ?? "2:3",
     strength: input.strength,
+    numImages: input.numImages,
   });
 }
 
@@ -192,27 +338,26 @@ export async function generateFromSketch(
 export async function generateFromText(
   input: GenerateFromTextInput,
 ): Promise<FalResult> {
-  configureFal();
   const modelId = FAL_TEXT_TO_IMAGE.id;
   const neg = input.negativePrompt?.trim();
   const prompt = neg ? `${input.prompt} Avoid: ${neg}.` : input.prompt;
+  const num = Math.min(Math.max(input.numImages ?? 1, 1), 3);
 
   try {
     const falInput = {
       prompt,
-      num_images: 1 as const,
+      num_images: num,
       output_format: "png" as const,
       image_size: "portrait_4_3" as const,
       enable_safety_checker: true,
       ...(input.seed !== undefined ? { seed: input.seed } : {}),
     };
 
-    const result = await fal.subscribe(modelId, {
+    const { data, requestId } = await runQueuedModel({
+      modelId,
       input: falInput,
-      logs: false,
     });
 
-    const data = result.data as FalImagePayload;
     const imageUrl = extractImageUrl(data);
     if (!imageUrl) {
       return {
@@ -226,9 +371,9 @@ export async function generateFromText(
       ok: true,
       imageUrl,
       seed: typeof data.seed === "number" ? data.seed : input.seed,
-      costUsd: FAL_TEXT_TO_IMAGE.estimatedCostUsd,
+      costUsd: FAL_TEXT_TO_IMAGE.estimatedCostUsd * num,
       modelId,
-      requestId: result.requestId,
+      requestId,
     };
   } catch (err) {
     const message =
@@ -255,6 +400,35 @@ export async function refineImage(
     strength: input.strength ?? 0.55,
     aspectRatio: input.aspectRatio ?? "auto",
   });
+}
+
+/** Optional fal upscale for approved finals. */
+export async function upscaleImage(imageUrl: string): Promise<FalResult> {
+  const modelId = "fal-ai/esrgan";
+  try {
+    const { data, requestId } = await runQueuedModel({
+      modelId,
+      input: { image_url: imageUrl, scale: 2 },
+    });
+    const out = extractImageUrl(data);
+    if (!out) {
+      return { ok: false, error: "Upscale returned no image.", modelId };
+    }
+    return {
+      ok: true,
+      imageUrl: out,
+      seed: undefined,
+      costUsd: 0.01,
+      modelId,
+      requestId,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Upscale failed",
+      modelId,
+    };
+  }
 }
 
 export async function uploadToFal(file: Blob): Promise<string> {

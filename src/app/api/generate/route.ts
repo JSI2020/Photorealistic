@@ -4,11 +4,13 @@ import { randomUUID } from "node:crypto";
 import { getUsdPkrRate, usdToPkr } from "@/lib/currency";
 import { polishUserPrompt } from "@/lib/deepseek";
 import { generateFromSketch, generateFromText } from "@/lib/fal";
+import { persistRemoteImage } from "@/lib/media-store";
 import {
   houseModelToPersona,
   resolveHouseModel,
   type HouseModelSelection,
 } from "@/lib/model-persona";
+import { getPersonaAnchorUrl } from "@/lib/persona-anchors";
 import {
   buildPrompt,
   resolvePromptMode,
@@ -16,6 +18,7 @@ import {
 } from "@/lib/prompt-builder";
 import { DEFAULT_APP_SETTINGS } from "@/lib/settings";
 import { getAppSettings } from "@/lib/settings-store";
+import { assertWithinSpendCap } from "@/lib/spend-gate";
 
 export const runtime = "nodejs";
 
@@ -25,12 +28,14 @@ export async function POST(request: Request) {
       sketchUrls?: string[];
       oldDesignUrl?: string;
       oldDesignUrls?: string[];
+      fabricUrl?: string;
       description?: string;
       shirtColour?: string;
       trouserColour?: string;
       fabric?: string;
       houseModelId?: HouseModelSelection;
       sourceMode?: PromptMode;
+      numCandidates?: number;
     };
 
     const sketchOnly = (body.sketchUrls ?? []).filter(Boolean);
@@ -75,8 +80,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const imageUrls =
-      mode === "old-design" ? oldOnly : mode === "sketch" ? sketchOnly : [];
+    const imageUrls = [
+      ...(mode === "old-design"
+        ? oldOnly
+        : mode === "sketch"
+          ? sketchOnly
+          : []),
+      ...(body.fabricUrl?.trim() ? [body.fabricUrl.trim()] : []),
+    ];
+
+    const numCandidates = Math.min(
+      Math.max(Number(body.numCandidates) || 1, 1),
+      3,
+    );
 
     let settings = DEFAULT_APP_SETTINGS;
     try {
@@ -84,10 +100,32 @@ export async function POST(request: Request) {
     } catch (err) {
       console.warn("[api/generate] settings failed, using defaults:", err);
     }
+
+    const gate = await assertWithinSpendCap({
+      modelKey: settings.fal.generateModel,
+      textToImage: mode === "description",
+    });
+    if (!gate.ok) {
+      return NextResponse.json(
+        {
+          error: gate.error,
+          code: "SPEND_CAP",
+          spend: gate.snapshot,
+        },
+        { status: 402 },
+      );
+    }
+
     const houseModel = resolveHouseModel(
       body.houseModelId ?? settings.preferredHouseModelId,
     );
     const persona = houseModelToPersona(houseModel);
+
+    const origin = new URL(request.url).origin;
+    const faceAnchor = getPersonaAnchorUrl(houseModel, origin);
+    if (faceAnchor && mode !== "description") {
+      imageUrls.push(faceAnchor);
+    }
 
     const polished = await polishUserPrompt({
       description: body.description,
@@ -105,6 +143,9 @@ export async function POST(request: Request) {
       fabric: polished.fabric,
       persona,
       mode,
+      feedback: body.fabricUrl
+        ? "Use the attached fabric swatch photo as the true colour and texture reference for the garment cloth."
+        : undefined,
     });
 
     const result =
@@ -113,6 +154,7 @@ export async function POST(request: Request) {
             prompt: built.prompt,
             negativePrompt: built.negativePrompt,
             seed: built.seed,
+            numImages: numCandidates,
           })
         : await generateFromSketch(
             {
@@ -121,7 +163,11 @@ export async function POST(request: Request) {
               negativePrompt: built.negativePrompt,
               seed: built.seed,
               modelKey: settings.fal.generateModel,
-              strength: mode === "old-design" ? 0.82 : undefined,
+              strength:
+                mode === "old-design"
+                  ? settings.strengths.oldDesignGenerate
+                  : undefined,
+              numImages: numCandidates,
             },
             settings.fal,
           );
@@ -133,10 +179,12 @@ export async function POST(request: Request) {
       );
     }
 
+    const persisted = await persistRemoteImage(result.imageUrl);
+
     const version = {
       id: randomUUID(),
       parentVersionId: null as string | null,
-      imageUrl: result.imageUrl,
+      imageUrl: persisted.url,
       prompt: built.prompt,
       negativePrompt: built.negativePrompt,
       seed: result.seed ?? null,
@@ -144,6 +192,8 @@ export async function POST(request: Request) {
       feedback: null as string | null,
       costUsd: result.costUsd,
       requestId: result.requestId,
+      aiGenerated: true as const,
+      altText: null as string | null,
     };
 
     const rate = getUsdPkrRate();

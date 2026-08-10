@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 
+import { CreditsBar } from "@/components/studio/credits-bar";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -42,7 +43,7 @@ export function GalleryClient() {
   return (
     <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_#f3efe8_0%,_#faf9f7_45%,_#f5f5f4_100%)]">
       <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4 sm:px-6">
+        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-3 px-4 sm:px-6">
           <Link
             href="/"
             className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1.5")}
@@ -50,8 +51,8 @@ export function GalleryClient() {
             <ArrowLeft className="size-4" />
             Studio
           </Link>
+          <CreditsBar />
           <h1 className="font-serif text-lg">Gallery</h1>
-          <span className="w-16" />
         </div>
       </header>
 
